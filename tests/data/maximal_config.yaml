@@ -1,0 +1,328 @@
+# Maximal configuration for comprehensive QEMU testing
+# All sections enabled with full feature set
+
+system:
+  hostname: testmaximal
+  timezone: Europe/Paris
+  cpu_vendor: amd
+
+  locale:
+    language: en_US
+    encoding: UTF-8
+    keymap: us
+    monetary: fr_FR.UTF-8
+    time_format: fr_FR.UTF-8
+    numeric: en_US.UTF-8
+    paper: fr_FR.UTF-8
+
+  mirrors:
+    mirrors:
+      - https://geo.mirror.pkgbuild.com/$repo/os/$arch
+      - https://mirror.rackspace.com/archlinux/$repo/os/$arch
+    use_reflector: false
+    reflector_countries:
+      - France
+      - Germany
+      - Netherlands
+
+  user:
+    name: testuser
+    groups:
+      - wheel
+
+storage:
+  target_disk: /dev/vda
+  efi_size_mb: 2048
+
+  luks:
+    type: luks2
+    cipher: aes-xts-plain64
+    key_size: 512
+    hash: sha512
+    pbkdf: argon2id
+    pbkdf_memory: 1048576
+    pbkdf_parallel: 4
+    pbkdf_time_ms: 4000
+
+  btrfs:
+    label: archroot
+    mount_options: compress=zstd,noatime
+
+    subvolumes:
+      - name: '@'
+        mountpoint: /
+      - name: '@home'
+        mountpoint: /home
+      - name: '@home-snapshots'
+        mountpoint: /home/.snapshots
+      - name: '@srv'
+        mountpoint: /srv
+      - name: '@var'
+        mountpoint: /var
+        nocow: true
+      - name: '@var-log'
+        mountpoint: /var/log
+      - name: '@cache-pacman-pkgs'
+        mountpoint: /var/cache/pacman/pkg
+      - name: '@var-tmp'
+        mountpoint: /var/tmp
+      - name: '@snapshots'
+        mountpoint: /.snapshots
+      - name: '@swap'
+        mountpoint: /.swap
+        nocow: true
+      - name: '@docker'
+        mountpoint: /var/lib/docker
+        nocow: true
+      - name: '@libvirt'
+        mountpoint: /var/lib/libvirt
+        nocow: true
+
+  swap:
+    enabled: true
+    size_mb: 1024
+    path: /.swap/swapfile
+    hibernation:
+      enabled: true
+
+boot:
+  kernels:
+    - name: hardened
+      package: linux-hardened
+    - name: mainline
+      package: linux
+    - name: lts
+      package: linux-lts
+
+  variants:
+    - suffix: default
+      params: ''
+    - suffix: no-dc
+      params: 'amdgpu.dc=0'
+    - suffix: no-runpm
+      params: 'amdgpu.runpm=0'
+    - suffix: no-dc-no-runpm
+      params: 'amdgpu.dc=0 amdgpu.runpm=0'
+
+  cmdline:
+    rootflags: 'subvol=@'
+    rootfstype: 'btrfs'
+    rw: true
+    quiet: true
+
+    hardening:
+      lockdown: 'integrity'
+      iommu: 'force'
+      intel_iommu: 'on'
+      amd_iommu: 'force_isolation'
+      pti: 'on'
+      spectre_v2: 'on'
+      spec_store_bypass_disable: 'on'
+      l1tf: 'full,force'
+      mds: 'full,nosmt'
+      srbds: 'on'
+      tsx_async_abort: 'full,nosmt'
+      init_on_alloc: 1
+      init_on_free: 1
+
+  loader:
+    timeout: 20
+    console_mode: max
+    editor: false
+
+  secure_boot:
+    enroll_keys: true
+    include_microsoft_keys: true
+
+  hooks:
+    - systemd
+    - autodetect
+    - microcode
+    - modconf
+    - kms
+    - keyboard
+    - sd-vconsole
+    - block
+    - sd-encrypt
+    - filesystems
+    - fsck
+
+  enable_snapshot_boot: true
+
+packages:
+  profile: base
+
+  base:
+    - base
+    - base-devel
+    - mkinitcpio
+    - sudo
+    - efibootmgr
+    - linux
+    - linux-headers
+    - linux-hardened
+    - linux-hardened-headers
+    - linux-lts
+    - linux-lts-headers
+    - linux-firmware
+    - intel-ucode
+    - amd-ucode
+    - btrfs-progs
+    - cryptsetup
+    - gparted
+    - snapper
+    - snap-pac
+    - sbctl
+    - efitools
+    - sbsigntools
+    - systemd-ukify
+    - networkmanager
+    - openssh
+    - dbus-broker
+    - pipewire
+    - pipewire-audio
+    - pipewire-alsa
+    - pipewire-jack
+    - pipewire-pulse
+    - wireplumber
+    - qt5-wayland
+    - qt6-wayland
+    - vim
+    - nano
+    - git
+    - wget
+    - curl
+    - zip
+    - unzip
+    - man-db
+    - man-pages
+    - libnotify
+    - kitty
+    - firefox
+    - keepassxc
+    - go
+    - rust
+    - rustup
+    - rust-analyzer
+    - clang
+    - npm
+    - docker
+    - docker-compose
+
+  desktops:
+    kde:
+      - plasma
+      - kde-applications
+    gnome:
+      - gnome
+    hyprland:
+      - hyprland
+      - xdg-desktop-portal-hyprland
+      - waybar
+      - dunst
+      - rofi-wayland
+      - thunar
+      - gvfs
+      - hyprlock
+      - hypridle
+      - hyprpaper
+      - grim
+      - slurp
+      - wl-clipboard
+      - cliphist
+      - pavucontrol
+      - brightnessctl
+      - network-manager-applet
+
+  display_manager:
+    - sddm
+
+gpu:
+  enabled: true
+  vendor: none
+  driver: ''
+
+  drivers:
+    amd:
+      - mesa
+      - vulkan-radeon
+      - libva-mesa-driver
+      - xf86-video-amdgpu
+    intel:
+      - mesa
+      - vulkan-intel
+      - intel-media-driver
+      - libva-intel-driver
+    nouveau:
+      - mesa
+      - xf86-video-nouveau
+      - libva-mesa-driver
+    nvidia_dkms:
+      - nvidia-dkms
+      - nvidia-utils
+      - nvidia-settings
+      - lib32-nvidia-utils
+      - libva-nvidia-driver
+    nvidia_open:
+      - nvidia-open-dkms
+      - nvidia-utils
+      - nvidia-settings
+      - lib32-nvidia-utils
+      - libva-nvidia-driver
+
+snapper:
+  enabled: true
+
+  allow_groups:
+    - wheel
+
+  root:
+    subvolume: /
+    timeline: true
+    cleanup: true
+    retention:
+      hourly: 5
+      daily: 7
+      weekly: 4
+      monthly: 6
+      yearly: 2
+
+  home:
+    subvolume: /home
+    timeline: true
+    cleanup: true
+    retention:
+      hourly: 5
+      daily: 7
+      weekly: 4
+      monthly: 3
+      yearly: 1
+
+  snap_pac:
+    enabled: true
+
+firewall:
+  enabled: true
+  default_incoming: deny
+  default_outgoing: allow
+  logging: true
+  block_icmp: true
+
+  ssh:
+    enabled: false
+    port: 22
+
+docker:
+  enabled: true
+  storage_driver: overlay2
+  data_root: /var/lib/docker
+  access_group: docker_access
+
+dotfiles:
+  enabled: false
+  remote_url: ''
+  repo_path: ~/.dotfiles-repo
+
+secrets:
+  luks_password_encrypted: ''
+  user_password_encrypted: ''

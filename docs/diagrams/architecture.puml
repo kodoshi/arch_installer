@@ -1,0 +1,308 @@
+@startuml DALI_Architecture
+!theme plain
+skinparam classAttributeIconSize 0
+skinparam groupInheritance 2
+
+title "DALI - Declarative ArchLinux Installer - Architecture Diagram"
+
+package "Entry Points" {
+    class "installer.main()" as main <<entry>> {
+        orchestrates full installation
+        via CLI or env vars
+    }
+    class "gui.main()" as gui_main <<entry>> {
+        tkinter GUI wizard
+        alternative to CLI
+    }
+}
+
+package "Core Orchestration" <<Rectangle>> {
+    class ArchInstaller {
+        - _config: DeclaredConfig
+        - _runtime_config: RuntimeConfig
+        - _runner: CommandRunner
+        --
+        + install(): void
+        - _run_storage_step()
+        - _run_packages_step()
+        - _run_system_step()
+        - _run_gpu_step()
+        - _run_mkinitcpio_step()
+        - _run_bootloader_step()
+        - _run_snapper_step()
+        - _run_firewall_step()
+        - _run_migration_step()
+        - _build_final_config_dict()
+        --
+        main orchestrator that runs
+        each step in sequence
+    }
+
+    class StepDefinition <<dataclass>> {
+        step: InstallStep
+        name: str
+        description: str
+        required: bool
+        --
+        metadata for each
+        installation step
+    }
+
+    enum InstallStep {
+        STORAGE
+        PACKAGES
+        SYSTEM
+        GPU
+        MKINITCPIO
+        BOOTLOADER
+        SNAPPER
+        FIREWALL
+        MIGRATION
+    }
+}
+
+package "Configuration Layer" <<Rectangle>> {
+    class DeclaredConfig <<frozen dataclass>> {
+        system: SystemConfig
+        storage: StorageConfig
+        boot: BootConfig
+        packages: PackagesConfig
+        gpu: GpuConfig
+        snapper: SnapperConfig
+        firewall: FirewallConfig
+        docker: DockerConfig
+        dotfiles: DotfilesConfig
+        migration: MigrationConfig
+        secrets: EncryptedSecretsConfig?
+        --
+        immutable config from YAML
+    }
+
+    class RuntimeConfig <<dataclass>> {
+        target_disk: str
+        luks_password: str
+        user_password: str
+        source_luks_password: str
+        target_root: Path
+        efi_mount: Path
+        non_interactive: bool
+        enable_*: bool flags
+        excluded_steps: set
+        selected_kernels: list[str]
+        selected_desktops: list[str]
+        cpu_vendor: str
+        gpu_vendor: str
+        gpu_driver: str
+        package_profile: str
+        swap_size_mb: int
+        wipe_method: str
+        hostname: str
+        username: str
+        timezone: str
+        --
+        mutable runtime state
+        populated at runtime from
+        user selections
+    }
+
+    class SystemConfig <<frozen>> {
+        hostname, timezone
+        locale: LocaleConfig
+        user: UserConfig
+        mirrors: PacmanMirrorConfig
+        cpu_vendor: str
+    }
+
+    class StorageConfig <<frozen>> {
+        target_disk: str
+        efi_size_mb: int
+        luks: LuksConfig
+        btrfs: BtrfsConfig
+        swap: SwapConfig
+    }
+
+    class "loader.py functions" as loader {
+        + load_main_yaml_config()
+        + load_config_with_validation()
+        - _parse_*_section() parsers
+        --
+        YAML parsing with defaults
+    }
+}
+
+package "User Interaction Layer" <<Rectangle>> {
+    abstract class InteractionStrategy {
+        - _runner: CommandRunner
+        - _hardware: HardwareDetector
+        --
+        + collect_all_selections()
+        + prompt_disk_selection()
+        + prompt_password()
+        + prompt_gpu_vendor()
+        + prompt_cpu_vendor()
+        + prompt_desktop_environment()
+        + prompt_swap_size()
+        + prompt_wipe_method()
+        + prompt_boolean()
+        + prompt_text()
+        + prompt_secrets_key()
+        + prompt_nvidia_driver()
+        + get_available_disks()
+        + get_system_ram_mb()
+        --
+        abstract interface for
+        collecting user input
+    }
+
+    class CLIInteractionStrategy {
+        - _config: DeclaredConfig
+        --
+        terminal-based prompts
+        with config.yaml defaults
+    }
+
+    class GUIInteractionStrategy {
+        tkinter-based screens
+        for wizard flow
+    }
+
+    class HardwareDetector {
+        + list_available_disks()
+        + get_system_ram_mb()
+        --
+        hardware info via lsblk
+    }
+
+    class InstallationSelections <<dataclass>> {
+        target_disk, passwords
+        gpu/cpu vendor
+        selected_desktops
+        swap_size_mb
+        enable_* flags
+        --
+        holds all user choices
+    }
+}
+
+package "Installation Steps" <<Rectangle>> {
+    class StorageProvisioner {
+        + provision_storage()
+        - _wipe_disk()
+        - _create_partitions()
+        - _setup_luks()
+        - _setup_btrfs()
+        - _mount_filesystems()
+        - _create_swapfile()
+        --
+        disk setup and LUKS
+    }
+
+    class PackageInstaller {
+        + install_packages()
+        --
+        pacstrap, packages
+    }
+
+    class SystemConfigurator {
+        + configure_system()
+        --
+        hostname, users, etc
+    }
+
+    class GpuDriverSetup {
+        + configure_gpu()
+        --
+        GPU driver packages
+    }
+
+    class UkiGenerator {
+        + generate_ukis()
+        --
+        mkinitcpio, UKIs
+    }
+
+    class BootloaderSetup {
+        + setup_bootloader()
+        --
+        systemd-boot, keys
+    }
+
+    class SnapperSetup {
+        + configure_snapper()
+        --
+        BTRFS snapshots
+    }
+
+    class FirewallSetup {
+        + configure_firewall()
+        --
+        UFW rules
+    }
+
+    class InstallationMigrator {
+        + migrate()
+        + post_install_restore()
+        --
+        data from old install
+    }
+
+    enum WipeMethod {
+        QUICK
+        SECURE
+        DISCARD
+        SKIP
+    }
+}
+
+package "Command Execution" <<Rectangle>> {
+    abstract class CommandRunner {
+        + run(cmd, **kwargs)
+        + arch_chroot(cmd)
+        --
+        abstract command exec
+    }
+
+    class SystemCommandRunner {
+        subprocess execution
+        with logging
+    }
+}
+
+package "Templates" <<Rectangle>> {
+    note "template generators for:\n- mkinitcpio.conf\n- systemd-boot entries\n- NVIDIA config\n- snapper configs\n- systemd units" as templates_note
+}
+
+' === Relationships ===
+
+main --> ArchInstaller : creates
+gui_main --> ArchInstaller : creates
+
+ArchInstaller --> DeclaredConfig : reads
+ArchInstaller --> RuntimeConfig : modifies
+ArchInstaller --> CommandRunner : uses
+
+ArchInstaller --> StorageProvisioner : delegates
+ArchInstaller --> PackageInstaller : delegates
+ArchInstaller --> SystemConfigurator : delegates
+ArchInstaller --> GpuDriverSetup : delegates
+ArchInstaller --> UkiGenerator : delegates
+ArchInstaller --> BootloaderSetup : delegates
+ArchInstaller --> SnapperSetup : delegates
+ArchInstaller --> FirewallSetup : delegates
+ArchInstaller --> InstallationMigrator : delegates
+
+loader --> DeclaredConfig : creates
+DeclaredConfig *-- SystemConfig
+DeclaredConfig *-- StorageConfig
+
+InteractionStrategy <|-- CLIInteractionStrategy
+InteractionStrategy <|-- GUIInteractionStrategy
+InteractionStrategy --> HardwareDetector : uses
+InteractionStrategy --> InstallationSelections : produces
+
+CLIInteractionStrategy --> DeclaredConfig : shows defaults
+
+CommandRunner <|-- SystemCommandRunner
+StorageProvisioner --> WipeMethod : uses
+
+@enduml

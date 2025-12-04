@@ -1,0 +1,29 @@
+# Pacman hook to refresh snapshot UKIs after kernel updates
+# This ensures bootable snapshots use the latest kernel/initramfs
+#
+# Placed in /etc/pacman.d/hooks/95-snapshot-uki-refresh.hook
+# Runs after 90-mkinitcpio-install.hook (which builds UKIs)
+
+[Trigger]
+Type = Path
+Operation = Install
+Operation = Upgrade
+Target = usr/lib/modules/*/vmlinuz
+Target = usr/lib/initcpio/*
+
+[Trigger]
+Type = Package
+Operation = Install
+Operation = Upgrade
+Target = linux
+Target = linux-lts
+Target = linux-hardened
+Target = linux-zen
+Target = intel-ucode
+Target = amd-ucode
+
+[Action]
+Description = Refreshing snapshot boot UKIs...
+When = PostTransaction
+Exec = /usr/local/bin/refresh-snapshot-ukis
+NeedsTargets

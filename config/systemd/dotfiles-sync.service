@@ -1,0 +1,45 @@
+# =============================================================================
+# Dotfiles Sync - Systemd User Service
+# =============================================================================
+# This service runs the dotfiles sync script to push local changes.
+#
+# Installation:
+#   mkdir -p ~/.config/systemd/user
+#   cp dotfiles-sync.service ~/.config/systemd/user/
+#   cp dotfiles-sync.timer ~/.config/systemd/user/
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now dotfiles-sync.timer
+#
+# Manual run:
+#   systemctl --user start dotfiles-sync.service
+#
+# Check status:
+#   systemctl --user status dotfiles-sync.service
+#   systemctl --user status dotfiles-sync.timer
+#   journalctl --user -u dotfiles-sync.service
+# =============================================================================
+
+[Unit]
+Description=Dotfiles Sync - Push configuration changes to GitHub
+Documentation=https://github.com/kodoshi/arch_install_as_code
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=%h/.local/bin/dotfiles-sync.sh push
+Environment=HOME=%h
+Environment=SSH_AUTH_SOCK=%t/ssh-agent.socket
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+
+# Security hardening
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=%h/.dotfiles-repo %h/.config/dotfiles-sync
+
+[Install]
+WantedBy=default.target

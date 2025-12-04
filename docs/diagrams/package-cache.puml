@@ -1,0 +1,34 @@
+@startuml package-cache
+!theme plain
+skinparam defaultFontSize 12
+
+title Package Cache Proxy Architecture
+
+rectangle "QEMU VM" as vm {
+    component "pacman\nclient" as pacman
+}
+
+rectangle "Host System" as host {
+    component "Cache Proxy\n(localhost:8080)" as proxy
+    database "Cache Directory\n~/.cache/arch-tests" as cache
+}
+
+cloud "Internet" as internet {
+    component "Upstream\nMirror" as mirror
+}
+
+pacman --> proxy : HTTP request
+proxy --> cache : check cache
+cache --> proxy : cached package
+proxy --> mirror : fetch if missing
+mirror --> cache : store for future
+proxy --> pacman : serve package
+
+note right of proxy
+  Cache-through mode:
+  1. Check local cache first
+  2. Fetch from upstream if missing
+  3. Cache for future requests
+end note
+
+@enduml

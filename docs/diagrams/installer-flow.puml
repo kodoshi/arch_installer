@@ -1,0 +1,23 @@
+@startuml installer-flow
+!theme plain
+skinparam defaultFontSize 12
+
+title Installer Phase Flow
+
+start
+
+partition "Phase 1: Configuration" {
+    :Load config/config.yaml\n\nParse into DeclaredConfig\n\nPrompt for runtime values (passwords, disk selection);
+}
+
+partition "Phase 2: Orchestration" {
+    :StorageProvisioner\n\nPackageInstaller\n\nSystemConfigurator\n\nGpuDriverSetup\n\nUkiGenerator\n\nBootloaderSetup\n\nSnapperSetup\n\nFirewallSetup;
+}
+
+partition "Phase 3: Verification" {
+    :Run verify-install\n\nReport status;
+}
+
+stop
+
+@enduml

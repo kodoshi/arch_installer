@@ -1,0 +1,440 @@
+# Declarative ArchLinux Installer - Unified Configuration
+#
+# This file contains all configuration for the installer.
+# Each section is read by the relevant script with resilient defaults.
+
+# System Configuration
+system:
+  hostname: archrog
+  timezone: Europe/Paris
+  cpu_vendor: amd # intel or amd - determines microcode package
+
+  # Locale settings
+  locale:
+    language: en_US
+    encoding: UTF-8
+    keymap: us
+    monetary: fr_FR.UTF-8
+    time_format: fr_FR.UTF-8
+    numeric: en_US.UTF-8
+    paper: fr_FR.UTF-8
+
+  # Pacman mirror configuration
+  mirrors:
+    mirrors:
+      - https://geo.mirror.pkgbuild.com/$repo/os/$arch
+      - https://mirror.rackspace.com/archlinux/$repo/os/$arch
+    use_reflector: false
+    reflector_countries:
+      - France
+      - Germany
+      - Netherlands
+
+  user:
+    name: user
+    groups:
+      - wheel
+
+# Storage Configuration
+storage:
+  # can be overridden by TARGET_DISK env var
+  # target_disk: /dev/nvme0n1
+
+  # EFI partition size in MiB (2GB for multiple UKIs including snapshots)
+  efi_size_mb: 2048
+
+  # disk wipe method: quick, secure, discard, skip
+  # quick: zap partition table only (default)
+  # secure: fill with random data via LUKS (slow, best for encryption)
+  # discard: SSD blkdiscard (fast, but leaks usage patterns)
+  # skip: keep existing partitions (if you are recovering a partial install)
+  wipe_method: quick
+
+  # LUKS2 encryption settings
+  luks:
+    type: luks2
+    cipher: aes-xts-plain64
+    key_size: 512
+    hash: sha512
+    pbkdf: argon2id
+    pbkdf_memory: 1048576
+    pbkdf_parallel: 4
+    pbkdf_time_ms: 4000
+
+  # BTRFS filesystem settings
+  btrfs:
+    label: archroot
+    mount_options: compress=zstd,noatime
+
+    # subvolume definitions
+    # format: name, mountpoint, and optional nocow flag
+    subvolumes:
+      - name: '@'
+        mountpoint: /
+      - name: '@home'
+        mountpoint: /home
+      - name: '@home-snapshots'
+        mountpoint: /home/.snapshots
+      - name: '@srv'
+        mountpoint: /srv
+      - name: '@var'
+        mountpoint: /var
+        nocow: true
+      - name: '@var-log'
+        mountpoint: /var/log
+      - name: '@cache-pacman-pkgs'
+        mountpoint: /var/cache/pacman/pkg
+      - name: '@var-tmp'
+        mountpoint: /var/tmp
+      - name: '@snapshots'
+        mountpoint: /.snapshots
+      - name: '@swap'
+        mountpoint: /.swap
+        nocow: true
+      - name: '@docker'
+        mountpoint: /var/lib/docker
+        nocow: true
+      - name: '@libvirt'
+        mountpoint: /var/lib/libvirt
+        nocow: true
+
+  # swapfile settings
+  swap:
+    enabled: true
+    size_mb: 4096 # 4 GiB, based on system RAM
+    path: /.swap/swapfile
+    # hibernation requires swap >= RAM size
+    hibernation:
+      enabled: true
+
+# boot Configuration
+boot:
+  # kernel packages to install and generate UKIs for
+  kernels:
+    - name: hardened
+      package: linux-hardened
+    - name: mainline
+      package: linux
+    - name: lts
+      package: linux-lts
+
+  # UKI variants with different cmdline parameters
+  # useful for GPU/APU troubleshooting or debugging
+  variants:
+    - suffix: default
+      params: ''
+    - suffix: no-dc
+      params: 'amdgpu.dc=0'
+    - suffix: no-runpm
+      params: 'amdgpu.runpm=0'
+    - suffix: no-dc-no-runpm
+      params: 'amdgpu.dc=0 amdgpu.runpm=0'
+
+  # kernel command line parameters
+  cmdline:
+    rootflags: 'subvol=@'
+    rootfstype: 'btrfs'
+    rw: true
+    quiet: true
+
+    # security hardening parameters
+    # all values here are read dynamically from config
+    hardening:
+      lockdown: 'integrity'
+      iommu: 'force'
+      intel_iommu: 'on'
+      amd_iommu: 'force_isolation'
+      pti: 'on'
+      spectre_v2: 'on'
+      spec_store_bypass_disable: 'on'
+      l1tf: 'full,force'
+      mds: 'full,nosmt'
+      srbds: 'on'
+      tsx_async_abort: 'full,nosmt'
+      init_on_alloc: 1
+      init_on_free: 1
+
+  # systemd-boot loader settings
+  loader:
+    timeout: 20
+    console_mode: max
+    editor: false
+
+  # Secure boot settings
+  secure_boot:
+    # automatically enroll keys when in setup mode
+    enroll_keys: true
+    # include Microsoft keys for dual-boot and signed firmware/OPROM compatibility
+    include_microsoft_keys: true
+
+  # mkinitcpio hooks (in order)
+  hooks:
+    - systemd
+    - autodetect
+    - microcode
+    - modconf
+    - kms
+    - keyboard
+    - sd-vconsole
+    - block
+    - sd-encrypt
+    - filesystems
+    - fsck
+
+  # enable bootable snapshots (creates UKIs for each btrfs snapshot)
+  # note: requires snapper enabled with root config for functional snapshots
+  enable_snapshot_boot: true
+
+# package Configuration
+packages:
+  # package profile: 'base' for full installation
+  profile: base
+
+  # base packages (full installation)
+  base:
+    # core system
+    - base
+    - base-devel
+    - mkinitcpio
+    - sudo
+    - efibootmgr
+    # kernels (filtered by SELECTED_KERNELS)
+    - linux
+    - linux-headers
+    - linux-hardened
+    - linux-hardened-headers
+    - linux-lts
+    - linux-lts-headers
+    # firmware & microcode (filtered by CPU_VENDOR)
+    - linux-firmware
+    - intel-ucode
+    - amd-ucode
+    # storage & encryption
+    - btrfs-progs
+    - cryptsetup
+    - gparted
+    - snapper
+    - snap-pac
+    # secure boot
+    - sbctl
+    - efitools
+    - sbsigntools
+    - systemd-ukify
+    # networking
+    - networkmanager
+    - openssh
+    # system services
+    - dbus-broker
+    # audio (PipeWire)
+    - pipewire
+    - pipewire-audio
+    - pipewire-alsa
+    - pipewire-jack
+    - pipewire-pulse
+    - wireplumber
+    # wayland support
+    - qt5-wayland
+    - qt6-wayland
+    # basic utilities
+    - vim
+    - nano
+    - git
+    - wget
+    - curl
+    - zip
+    - unzip
+    - man-db
+    - man-pages
+    # notifications
+    - libnotify
+    # apps and dev tools
+    - kitty
+    - firefox
+    - keepassxc
+    - go
+    - rust
+    - rustup
+    - rust-analyzer
+    - clang
+    - npm
+    - docker
+    - docker-compose
+
+  # desktop environments
+  # keep all 3 sections for multi-desktop support, user selects at runtime or via DESKTOP env var
+  # or you can leave only the desired desktop section here, and runtime selection is skipped
+  desktops:
+    kde:
+      - plasma
+      - kde-applications
+    gnome:
+      - gnome
+    hyprland:
+      - hyprland
+      - xdg-desktop-portal-hyprland
+      - waybar
+      - dunst
+      - rofi-wayland
+      - thunar
+      - gvfs
+      - hyprlock
+      - hypridle
+      - hyprpaper
+      - grim
+      - slurp
+      - wl-clipboard
+      - cliphist
+      - pavucontrol
+      - brightnessctl
+      - network-manager-applet
+
+  display_manager:
+    - sddm
+
+# GPU Configuration
+gpu:
+  # enable GPU driver installation
+  enabled: true
+
+  # GPU vendor: nvidia, amd, intel, none
+  vendor: nvidia
+
+  # default driver selection (per vendor):
+  # - nvidia: nouveau, nvidia_dkms, nvidia_open
+  # - amd: amdgpu (open source, default)
+  # - intel: i915 (open source, default)
+  driver: nouveau
+
+  # driver-specific packages
+  drivers:
+    # AMD uses open-source stack
+    amd:
+      - mesa
+      - vulkan-radeon
+      - libva-mesa-driver
+      - xf86-video-amdgpu
+    # intel uses open-source stack
+    intel:
+      - mesa
+      - vulkan-intel
+      - intel-media-driver
+      - libva-intel-driver
+    # NVIDIA options
+    nouveau:
+      - mesa
+      - xf86-video-nouveau
+      - libva-mesa-driver
+    nvidia_dkms:
+      - nvidia-dkms
+      - nvidia-utils
+      - nvidia-settings
+      - lib32-nvidia-utils
+      - libva-nvidia-driver
+    nvidia_open:
+      - nvidia-open-dkms
+      - nvidia-utils
+      - nvidia-settings
+      - lib32-nvidia-utils
+      - libva-nvidia-driver
+
+# Snapper Configuration (BTRFS Snapshots)
+snapper:
+  # enable snapper configuration
+  enabled: true
+
+  # groups allowed to manage snapshots (read by snapper.sh)
+  allow_groups:
+    - wheel
+
+  # root filesystem snapshots
+  root:
+    subvolume: /
+    timeline: true
+    cleanup: true
+    # retention: hourly, daily, weekly, monthly, yearly
+    retention:
+      hourly: 5
+      daily: 7
+      weekly: 4
+      monthly: 6
+      yearly: 2
+
+  # Home snapshots
+  home:
+    subvolume: /home
+    timeline: true
+    cleanup: true
+    retention:
+      hourly: 5
+      daily: 7
+      weekly: 4
+      monthly: 3
+      yearly: 1
+
+  # snap-pac integration (pre/post pacman snapshots)
+  snap_pac:
+    enabled: true
+
+# Firewall Configuration (UFW)
+firewall:
+  # enable firewall configuration
+  enabled: true
+
+  # default policies
+  default_incoming: deny
+  default_outgoing: allow
+
+  # logging
+  logging: true
+
+  # block ICMP (ping) for stealth
+  block_icmp: true
+
+  # SSH access
+  ssh:
+    enabled: false
+    port: 22
+    # allowed_from: 192.168.1.0/24  # optional: restrict SSH to specific subnet
+
+  # additional allow rules (port/protocol)
+  # allow_rules:
+  #   - port: 80
+  #     protocol: tcp
+  #   - port: 443
+  #     protocol: tcp
+
+# Docker Configuration
+docker:
+  # enable docker configuration
+  enabled: true
+
+  # storage driver (overlay2 recommended for BTRFS with dedicated subvolume)
+  storage_driver: overlay2
+
+  # data root (should match the @docker subvolume mountpoint)
+  data_root: /var/lib/docker
+
+  # group for passwordless docker access (created and user added to this group)
+  access_group: docker_access
+
+# Dotfiles Sync Configuration
+dotfiles:
+  # enable dotfiles sync feature
+  enabled: false
+
+  # git remote URL
+  # examples:
+  #   git@github.com:username/dotfiles.git
+  #   git@gitlab.com:username/dotfiles.git
+  remote_url: ''
+
+  # Local repository path
+  repo_path: ~/.dotfiles-repo
+
+# Encrypted Secrets for both Non-Interactive and Interactive Mode
+# Generate encrypted passwords using:
+#   make encrypt-secrets ARCH_INSTALLER_SECRETS_KEY=your-key LUKS_PASSWORD=diskpass USER_PASSWORD=userpass
+# Then set ARCH_INSTALLER_SECRETS_KEY=your-key at runtime to decrypt, or input it during prompts.
+secrets:
+  luks_password_encrypted: '1lt6oXIiEegLBC6vR4y0lE346Qt7DNBw2cbQNTYQ069j14ni'
+  user_password_encrypted: 'DUa8DDNl6Zg1WZEArc5qPPH0Umb7BHmJw5AvzsyH2dPkw1kX'

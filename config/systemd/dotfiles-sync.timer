@@ -1,0 +1,28 @@
+# =============================================================================
+# Dotfiles Sync - Systemd Timer
+# =============================================================================
+# Runs the dotfiles sync once per day at a randomized time, to be synced.
+#
+# Check next run time:
+#   systemctl --user list-timers dotfiles-sync.timer
+# =============================================================================
+
+[Unit]
+Description=Daily dotfiles sync to GitHub
+Documentation=https://github.com/kodoshi/arch_install_as_code
+
+[Timer]
+# Run once per day
+OnCalendar=daily
+
+# Add random delay up to 1 hour to avoid all machines stampede-syncing at once
+RandomizedDelaySec=3600
+
+# Run immediately if last scheduled run was missed (e.g., machine was off)
+Persistent=true
+
+# Don't wake up the system from sleep just for this
+WakeSystem=false
+
+[Install]
+WantedBy=timers.target

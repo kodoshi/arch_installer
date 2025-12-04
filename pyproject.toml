@@ -1,0 +1,49 @@
+[tool.poetry]
+name = "arch-installer"
+version = "0.1.0"
+description = "Declarative, deterministic, and idempotent Arch Linux installer"
+readme = "README.md"
+packages = [{ include = "arch_installer", from = "src" }]
+
+[tool.poetry.dependencies]
+python = ">=3.13"
+pyyaml = "^6.0.3"
+cryptography = "^46.0.3"
+
+[tool.poetry.scripts]
+arch-installer = "arch_installer.installer:main"
+arch-installer-gui = "arch_installer.gui:main"
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^9.0.1"
+pytest-cov = "^7.0.0"
+docker = "^7.1.0"
+pytest-xdist = "^3.8.0"
+pytest-timeout = "^2.4.0"
+
+[tool.pytest.ini_options]
+# IMPORTANT: E2E docker tests MUST NOT run in parallel
+# They use shared kernel loop devices which causes race conditions
+# Do NOT use -n auto or any xdist parallel options for e2e tests
+# Unit tests can run in parallel with: pytest tests/unit -n auto
+addopts = "-v -p no:warnings"
+testpaths = ["tests"]
+markers = [
+    "qemu: tests that require QEMU VM infrastructure",
+    "slow: tests that take a long time to run (>1 minute)",
+    "integration: tests that require Docker or external services",
+]
+
+[tool.coverage.run]
+source = ["src/arch_installer"]
+branch = true
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "raise NotImplementedError",
+]

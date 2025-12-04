@@ -1,0 +1,42 @@
+# =============================================================================
+# Dotfiles Sync Configuration
+# =============================================================================
+# This file configures which files to sync and where the repo is located.
+# Place this file at: ~/.config/dotfiles-sync/config.yaml
+#
+# The script has built-in defaults for common dotfiles, but you can
+# add custom mappings here to override or extend them.
+# =============================================================================
+
+# Repository location (default: ~/.dotfiles-repo)
+# repo_path: /home/user/.dotfiles-repo
+
+# Custom file mappings
+# Format: "local_path:repo_path"
+# Use ~ for home directory
+#
+# Examples:
+mappings:
+  # Custom shell configs
+  # - "~/.config/fish:fish"
+
+  # Application configs
+  - '~/.config/kitty:kitty'
+  - '~/.config/nvim:nvim'
+  - '~/.config/Code/User/settings.json:vscode/settings.json'
+  - '~/.config/Code/User/keybindings.json:vscode/keybindings.json'
+
+  # Desktop environment
+  - '~/.config/hypr:hypr'
+  - '~/.config/waybar:waybar'
+  - '~/.config/rofi:rofi'
+
+  # Shell
+  - '~/.zshrc:zsh/.zshrc'
+  - '~/.config/starship.toml:starship/starship.toml'
+
+  # Git
+  - '~/.gitconfig:git/.gitconfig'
+
+  # This installer's config
+  - '~/personal/arch_install_as_code/config/config.yaml:arch-installer/config.yaml'

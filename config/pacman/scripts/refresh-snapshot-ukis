@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+# =============================================================================
+# Refresh Snapshot UKIs
+# =============================================================================
+# Called by pacman hook after kernel updates to regenerate snapshot UKIs.
+# This ensures bootable snapshots always have working kernel/initramfs.
+#
+# Installed to: /usr/local/bin/refresh-snapshot-ukis
+# =============================================================================
+
+set -euo pipefail
+
+SNAPSHOT_MANAGER="/usr/local/bin/manage-snapshot-ukis"
+FALLBACK_MANAGER="/opt/arch-install/scripts/manage_snapshot_entries.sh"
+LOG_FILE="/var/log/snapshot-uki-refresh.log"
+
+log() {
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" | tee -a "$LOG_FILE"
+}
+
+# find the snapshot manager script
+if [ -x "$SNAPSHOT_MANAGER" ]; then
+    MANAGER="$SNAPSHOT_MANAGER"
+elif [ -x "$FALLBACK_MANAGER" ]; then
+    MANAGER="$FALLBACK_MANAGER"
+else
+    log "Warning: Snapshot UKI manager not found, skipping refresh"
+    exit 0
+fi
+
+# check if snapshots exist
+if [ ! -d "/.snapshots" ] || [ -z "$(ls -A /.snapshots 2>/dev/null)" ]; then
+    log "No snapshots found in /.snapshots, skipping UKI refresh"
+    exit 0
+fi
+
+log "Refreshing snapshot UKIs after kernel update..."
+
+# refresh with default count (3)
+if "$MANAGER" refresh 3 >> "$LOG_FILE" 2>&1; then
+    log "Snapshot UKIs refreshed successfully"
+else
+    log "Warning: Failed to refresh some snapshot UKIs"
+    # don't fail the hook - kernel update should still succeed
+fi
+
+exit 0

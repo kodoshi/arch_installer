@@ -1,0 +1,185 @@
+# Minimal configuration for QEMU testing
+# Only essential sections: system, storage, packages, boot
+# Optional sections are disabled or omitted
+
+system:
+  hostname: testminimal
+  timezone: UTC
+  cpu_vendor: amd
+
+  locale:
+    language: en_US
+    encoding: UTF-8
+    keymap: us
+    monetary: en_US.UTF-8
+    time_format: en_US.UTF-8
+    numeric: en_US.UTF-8
+    paper: en_US.UTF-8
+
+  mirrors:
+    mirrors:
+      - https://geo.mirror.pkgbuild.com/$repo/os/$arch
+    use_reflector: false
+    reflector_countries:
+      - Germany
+
+  user:
+    name: testuser
+    groups:
+      - wheel
+
+storage:
+  target_disk: /dev/vda
+  efi_size_mb: 1024
+
+  luks:
+    type: luks2
+    cipher: aes-xts-plain64
+    key_size: 512
+    hash: sha512
+    pbkdf: argon2id
+    pbkdf_memory: 1048576
+    pbkdf_parallel: 4
+    pbkdf_time_ms: 4000
+
+  btrfs:
+    label: archroot
+    mount_options: compress=zstd,noatime
+
+    subvolumes:
+      - name: '@'
+        mountpoint: /
+      - name: '@home'
+        mountpoint: /home
+      - name: '@var'
+        mountpoint: /var
+        nocow: true
+      - name: '@var-log'
+        mountpoint: /var/log
+      - name: '@snapshots'
+        mountpoint: /.snapshots
+      - name: '@swap'
+        mountpoint: /.swap
+        nocow: true
+
+  swap:
+    enabled: true
+    size_mb: 512
+    path: /.swap/swapfile
+    hibernation:
+      enabled: false
+
+boot:
+  kernels:
+    - name: mainline
+      package: linux
+
+  variants:
+    - suffix: default
+      params: ''
+
+  cmdline:
+    rootflags: 'subvol=@'
+    rootfstype: 'btrfs'
+    rw: true
+    quiet: true
+
+    hardening:
+      lockdown: 'integrity'
+      iommu: 'force'
+      intel_iommu: 'on'
+      amd_iommu: 'force_isolation'
+      pti: 'on'
+      spectre_v2: 'on'
+      spec_store_bypass_disable: 'on'
+      l1tf: 'full,force'
+      mds: 'full,nosmt'
+      srbds: 'on'
+      tsx_async_abort: 'full,nosmt'
+      init_on_alloc: 1
+      init_on_free: 1
+
+  loader:
+    timeout: 5
+    console_mode: max
+    editor: false
+
+  secure_boot:
+    enroll_keys: true
+    include_microsoft_keys: true
+
+  hooks:
+    - systemd
+    - autodetect
+    - microcode
+    - modconf
+    - kms
+    - keyboard
+    - sd-vconsole
+    - block
+    - sd-encrypt
+    - filesystems
+    - fsck
+
+  enable_snapshot_boot: false
+
+packages:
+  profile: base
+
+  base:
+    - base
+    - base-devel
+    - mkinitcpio
+    - sudo
+    - efibootmgr
+    - linux
+    - linux-headers
+    - linux-firmware
+    - btrfs-progs
+    - cryptsetup
+    - snapper
+    - sbctl
+    - systemd-ukify
+    - networkmanager
+    - openssh
+    - vim
+    - git
+
+  desktops:
+    kde: []
+    gnome: []
+    hyprland: []
+
+  display_manager: []
+
+gpu:
+  enabled: false
+  vendor: none
+  driver: ''
+
+  drivers:
+    amd: []
+    intel: []
+    nouveau: []
+    nvidia_dkms: []
+    nvidia_open: []
+
+# snapper disabled for minimal config
+snapper:
+  enabled: false
+
+# firewall disabled for minimal config
+firewall:
+  enabled: false
+
+# docker disabled for minimal config
+docker:
+  enabled: false
+
+# dotfiles disabled for minimal config
+dotfiles:
+  enabled: false
+
+secrets:
+  luks_password_encrypted: ''
+  user_password_encrypted: ''

@@ -6,7 +6,7 @@ from tests.unit.conftest import build_config
 
 
 def docker_config(**overrides) -> DockerConfig:
-    return replace(DockerConfig(enabled=True), **overrides)
+    return replace(build_config().docker, enabled=True, **overrides)
 
 
 class TestDaemonJson:

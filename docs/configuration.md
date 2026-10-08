@@ -1,51 +1,38 @@
 # Configuration Reference
 
-All settings are in `config/config.yaml`. The installer has sensible defaults.
+All settings are in `config/config.yaml`. No setting has a default in code: every value the installer uses comes from an environment variable, `config/config.yaml` or the TUI, and a setting none of them provides is reported instead of being made up.
 
-## Essential Configuration
+## Where Values Come From
 
-Only three fields have no default and must be in config.yaml; everything else falls back to a default from `config/models.py`:
+| Mode                            | Priority, highest first                                                                                          |
+| ------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| Interactive (default)           | environment variables > `config.yaml`, then the TUI shows that inherited value and may replace it              |
+| Non-interactive (`NON_INTERACTIVE=true`) | environment variables > `config.yaml`                                                                  |
 
-| Field             | Description                     |
-| ----------------- | ------------------------------- |
-| `system.hostname` | System hostname                 |
-| `system.timezone` | Timezone (e.g., `Europe/Paris`) |
-| `packages.base`   | Packages installed by pacstrap  |
+The order is written in one place, `INHERITANCE_ORDER` in `src/arch_installer/config/value_precedence.py`.
 
-These are needed before an installation can start, from config.yaml, an environment variable or the TUI:
+- **Non-interactive:** every setting needs a value from the environment or `config.yaml`. If any is missing, the installer stops before touching a disk and lists each missing setting with the sources that can provide it, for example `storage.target_disk (config.yaml or TARGET_DISK)`.
+- **Interactive:** the TUI asks for the settings it has screens for; everything else must come from the environment or `config.yaml`, as above.
 
-| Value                  | config.yaml                         | Environment variable |
-| ---------------------- | ----------------------------------- | -------------------- |
-| Target disk            | `storage.target_disk`               | `TARGET_DISK`        |
-| Disk encryption        | `secrets.luks_password_encrypted`   | `LUKS_PASSWORD`      |
-| User account password  | `secrets.user_password_encrypted`   | `USER_PASSWORD`      |
+## A Complete Configuration
 
-All environment variables are listed under [Environment Variables](#environment-variables).
+`config.yaml` must state every setting, including list-item details such as each subvolume's `nocow` and each snapper volume's limits. Unknown keys are refused with their full path, so a typo fails loudly instead of being ignored.
 
-### Minimal Working Configuration
+- `config/config.yaml` is complete except for `storage.target_disk`, which is machine-specific: give it with `TARGET_DISK` or pick it in the TUI.
+- `tests/data/minimal_config.yaml` is the smallest complete configuration (no desktop, snapper, firewall or Docker); the QEMU tests install it.
 
-```yaml
-system:
-  hostname: myhost
-  timezone: Europe/Paris
-  user:
-    name: myuser
-
-packages:
-  base: [base, base-devel, mkinitcpio, sudo, efibootmgr, linux, linux-headers, linux-firmware,
-         btrfs-progs, cryptsetup, snapper, sbctl, systemd-ukify, networkmanager, openssh]
-```
-
-`tests/data/minimal_config.yaml` is the minimal configuration the QEMU tests install.
+Passwords are never written in plain text: they come from the environment, the TUI, or the encrypted `secrets` section below.
 
 ### Encrypted Passwords
 
-Passwords can be stored encrypted (AES-256-GCM) in config.yaml, so an installation needs only the key:
+Passwords can be stored encrypted in config.yaml, so an installation needs only the key. Each password is encrypted with AES-256-GCM under a key derived from your secrets key with Argon2id (256 MiB, 3 iterations, a random salt per password), and is bound to its setting so the two cannot be swapped:
 
 ```bash
 make encrypt-secrets   # asks for the key (twice) and both passwords, without echo
 make decrypt-secrets   # asks for the key and prints the passwords
 ```
+
+Secrets encrypted before October 2026 used a fast unsalted SHA-256 key and are refused with a request to run `make encrypt-secrets` again.
 
 `encrypt-secrets` edits only the two `secrets` lines and keeps the rest of the file, comments included. Pressing Enter at a password prompt keeps the stored one, which is only allowed when it was encrypted with the same key. Add `NO_WRITE=true` to print the encrypted values without touching the file, and `CONFIG_PATH=...` to target another file.
 
@@ -67,7 +54,7 @@ The installer itself hands every password to `cryptsetup` and `chpasswd` on stdi
 
 ## Interactive Prompts
 
-Unless `NON_INTERACTIVE=true` is set, the installer opens a curses TUI after the configuration is resolved (defaults, then config.yaml, then the environment). Every screen starts on the value inherited from those sources and marks it `(inherited)`: Enter keeps it, any other choice overrides it.
+Unless `NON_INTERACTIVE=true` is set, the installer opens a curses TUI after reading the environment and `config.yaml`. Every screen starts on the inherited value and says where it came from, for example `(inherited from environment)`: Enter keeps it, any other choice replaces it. A setting without an inherited value starts with nothing selected; a feature toggle without one shows `?` and must be set before continuing. The summary screen lists every value with its source (`environment`, `config.yaml` or `TUI`).
 
 ### Screen Sequence
 
@@ -97,7 +84,7 @@ The installer supports **multi-desktop** installation. You can install one or mo
 | KDE      | Wayland, highly customizable      |
 | Hyprland | Wayland tiling WM for power users |
 
-During installation, tick the desktops to install on the **Desktop Environments** screen (Space toggles, Enter confirms), or set `SELECTED_DESKTOPS=gnome,kde`. When neither is given, every desktop with packages listed under `packages.desktops` is installed.
+The desktops to install are listed in `packages.selected_desktops` (each needs packages under `packages.desktops`; an empty list installs none). `SELECTED_DESKTOPS=gnome,kde` overrides that list, and the **Desktop Environments** screen of the TUI shows it ticked and lets you change it (Space toggles, Enter confirms).
 
 The packages in `packages.display_manager` (SDDM by default) are installed and enabled alongside them.
 
@@ -341,18 +328,9 @@ firewall:
       protocol: tcp
 ```
 
-## Optional Configuration Sections
+## Sections
 
-Every section except `system` and `packages` can be omitted; an omitted section, or an omitted key inside a section, keeps its default from `config/models.py`. Unknown keys are rejected with their full path, so a typo fails loudly instead of being ignored.
-
-| Section         | Default when omitted |
-| --------------- | -------------------- |
-| `docker`        | disabled             |
-| `snapper`       | enabled              |
-| `firewall`      | enabled              |
-| `notifications` | enabled              |
-| `migration`     | disabled             |
-| `usb_boot`      | disabled             |
+Every section must be present in `config.yaml` (`system`, `storage`, `boot`, `packages`, `gpu`, `snapper`, `firewall`, `docker`, `notifications`, `sync`, `migration`, `usb_boot`, `secrets`). To turn a feature off, keep its section and set `enabled: false`. A snapper volume can be turned off with `root: null` or `home: null`.
 
 ## Snapper Configuration
 
@@ -390,64 +368,69 @@ Dotfiles sync is not part of config.yaml: the installed `dotfiles-sync` tool kee
 
 ## Environment Variables
 
-Every setting below can be given as an environment variable for automated or non-interactive installations. A variable that is set overrides config.yaml; the TUI then shows it as the inherited value. The names are defined in one place, the `EnvVariable` enum in `config/environment.py`.
+The settings below can also come from environment variables. A variable that is set beats `config.yaml`; in interactive mode the TUI then shows it as the inherited value, marked `(inherited from environment)`. Each variable and the setting it provides are listed in one table, `ENVIRONMENT_SETTINGS` in `config/environment.py`. The last column names what is used when the variable is not set.
 
-### Core Installation Variables
+### Installer Switches
 
-| Variable          | Description                                            | Default                  |
-| ----------------- | ------------------------------------------------------ | ------------------------ |
-| `CONFIG_PATH`     | Path to config.yaml                                    | `config/config.yaml`     |
-| `NON_INTERACTIVE` | Skip the TUI                                           | `false`                  |
-| `VERBOSE`         | `true` for debug output, `quiet` for warnings only     | normal                   |
-| `TARGET_DISK`     | Target disk (e.g., `/dev/nvme0n1`)                     | `storage.target_disk`    |
-| `WIPE_METHOD`     | Disk wipe method: `quick`, `secure`, `discard`, `skip` | `storage.wipe_method`    |
-| `SWAP_SIZE_MB`    | Swapfile size in MB                                    | `storage.swap.size_mb`   |
-| `SKIP_SWAP`       | Skip swapfile creation                                 | `false`                  |
-| `SELECTED_KERNELS` | Comma-separated kernel packages from `boot.kernels` (e.g., `linux-lts`) | all of `boot.kernels` |
+| Variable          | Description                                        | When not set                     |
+| ----------------- | -------------------------------------------------- | -------------------------------- |
+| `CONFIG_PATH`     | Path to config.yaml                                | the repository's `config/config.yaml` |
+| `NON_INTERACTIVE` | `true` skips the TUI                               | interactive (TUI)                |
+| `VERBOSE`         | `true` for debug output, `quiet` for warnings only | normal output                    |
 
-### Password and Secrets Variables
+### Storage and Kernel Settings
 
-| Variable                     | Description                                             | Default            |
-| ---------------------------- | ------------------------------------------------------- | ------------------ |
-| `LUKS_PASSWORD`              | Disk encryption password (plaintext)                    | encrypted secrets  |
-| `USER_PASSWORD`              | User account password (plaintext)                       | encrypted secrets  |
-| `SOURCE_LUKS_PASSWORD`       | Password of the existing LUKS volume (migration)        | -                  |
-| `ARCH_INSTALLER_SECRETS_KEY` | Key that unlocks the encrypted passwords in config.yaml | asked for when interactive |
-| `NO_WRITE`                   | `make encrypt-secrets` prints instead of writing        | `false`            |
+| Variable           | Description                                                     | When not set             |
+| ------------------ | --------------------------------------------------------------- | ------------------------ |
+| `TARGET_DISK`      | Target disk (e.g., `/dev/nvme0n1`)                              | `storage.target_disk`    |
+| `WIPE_METHOD`      | Disk wipe method: `quick`, `secure`, `discard`, `skip`          | `storage.wipe_method`    |
+| `SWAP_SIZE_MB`     | Swapfile size in MB                                             | `storage.swap.size_mb`   |
+| `SKIP_SWAP`        | `true` creates no swapfile                                      | `storage.swap.enabled`   |
+| `SELECTED_KERNELS` | Comma-separated kernel packages from `boot.kernels` (e.g., `linux-lts`) | `boot.selected_kernels` |
 
-### Feature Toggle Variables
+### Passwords and Secrets
 
-| Variable               | Description                             | Default                      |
-| ---------------------- | --------------------------------------- | ---------------------------- |
-| `ENABLE_FIREWALL`      | UFW firewall                            | `firewall.enabled`           |
-| `ENABLE_DOCKER`        | Docker                                  | `docker.enabled`             |
-| `ENABLE_HIBERNATION`   | Hibernation to the swapfile             | `storage.swap.hibernation`   |
-| `ENABLE_SNAPSHOT_BOOT` | Bootable BTRFS snapshots                | `boot.enable_snapshot_boot`  |
-| `ENABLE_NOTIFICATIONS` | Desktop notifications for snapshots     | `notifications.enabled`      |
-| `ENABLE_MIGRATION`     | Migrate data from an existing install   | `migration.enabled`          |
+| Variable                     | Description                                             | When not set                                   |
+| ---------------------------- | ------------------------------------------------------- | ---------------------------------------------- |
+| `LUKS_PASSWORD`              | Disk encryption password                                | `secrets.luks_password_encrypted`, or the TUI  |
+| `USER_PASSWORD`              | User account password                                   | `secrets.user_password_encrypted`, or the TUI  |
+| `SOURCE_LUKS_PASSWORD`       | Password of the existing LUKS volume (migration)        | the TUI                                        |
+| `ARCH_INSTALLER_SECRETS_KEY` | Key that unlocks the encrypted passwords in config.yaml | asked for when interactive                     |
+| `NO_WRITE`                   | `true`: `make encrypt-secrets` prints instead of writing | config.yaml is updated                        |
 
-### Hardware Variables
+### Feature Settings
 
-| Variable     | Description                                         | Default             |
-| ------------ | --------------------------------------------------- | ------------------- |
-| `CPU_VENDOR` | CPU vendor for microcode: `intel`, `amd`            | `system.cpu_vendor` |
-| `GPU_VENDOR` | GPU vendor: `amd`, `intel`, `nvidia`, `none`        | `gpu.vendor`        |
-| `GPU_DRIVER` | NVIDIA driver: `nouveau`, `nvidia-open`, `nvidia-dkms` | `gpu.driver`     |
+| Variable               | Description                           | When not set                 |
+| ---------------------- | ------------------------------------- | ---------------------------- |
+| `ENABLE_FIREWALL`      | UFW firewall                          | `firewall.enabled`           |
+| `ENABLE_DOCKER`        | Docker                                | `docker.enabled`             |
+| `ENABLE_HIBERNATION`   | Hibernation to the swapfile           | `storage.swap.hibernation`   |
+| `ENABLE_SNAPSHOT_BOOT` | Bootable BTRFS snapshots              | `boot.enable_snapshot_boot`  |
+| `ENABLE_NOTIFICATIONS` | Desktop notifications for snapshots   | `notifications.enabled`      |
+| `ENABLE_MIGRATION`     | Migrate data from an existing install | `migration.enabled`          |
 
-### Desktop Selection Variables
+### Hardware Settings
 
-| Variable            | Description                                          | Default                       |
-| ------------------- | ---------------------------------------------------- | ----------------------------- |
-| `SELECTED_DESKTOPS` | Comma-separated desktops: `kde`, `gnome`, `hyprland` | every desktop with packages   |
+| Variable     | Description                                            | When not set        |
+| ------------ | ------------------------------------------------------ | ------------------- |
+| `CPU_VENDOR` | CPU vendor for microcode: `intel`, `amd`               | `system.cpu_vendor` |
+| `GPU_VENDOR` | GPU vendor: `amd`, `intel`, `nvidia`, `none`           | `gpu.vendor`        |
+| `GPU_DRIVER` | NVIDIA driver: `nouveau`, `nvidia-open`, `nvidia-dkms` | `gpu.driver`        |
 
-### USB Variables
+### Desktop Selection
 
-| Variable            | Description                                    | Default                    |
-| ------------------- | ---------------------------------------------- | -------------------------- |
-| `ENABLE_USB_BOOT`   | EFI partition and LUKS header on a USB drive   | `usb_boot.enabled`         |
-| `USB_BOOT_DEVICE`   | USB device (e.g., `/dev/sdb`)                  | `usb_boot.device`          |
-| `ISO_PATH`          | Arch ISO copied to the USB drive               | `usb_boot.iso_path`        |
-| `BACKUP_CATEGORIES` | Comma-separated: `dotfiles`, `keepass`, `browser`, `system` | all              |
+| Variable            | Description                                          | When not set                 |
+| ------------------- | ---------------------------------------------------- | ---------------------------- |
+| `SELECTED_DESKTOPS` | Comma-separated desktops: `kde`, `gnome`, `hyprland` | `packages.selected_desktops` |
+
+### USB Settings
+
+| Variable            | Description                                                  | When not set              |
+| ------------------- | ------------------------------------------------------------ | ------------------------- |
+| `ENABLE_USB_BOOT`   | EFI partition and LUKS header on a USB drive                 | `usb_boot.enabled`        |
+| `USB_BOOT_DEVICE`   | USB device (e.g., `/dev/sdb`)                                | `usb_boot.device`         |
+| `ISO_PATH`          | Arch ISO copied to the USB drive                             | `usb_boot.iso_path`       |
+| `BACKUP_CATEGORIES` | Comma-separated: `dotfiles`, `keepass`, `browser`, `system`  | `sync.backup_categories`  |
 
 ## Dual Boot with Windows
 

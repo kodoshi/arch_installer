@@ -30,6 +30,7 @@ from arch_installer.executors.snapper import (
 from arch_installer.executors.storage import StorageExecutor
 from arch_installer.executors.system import SystemExecutor
 from arch_installer.executors.usb_boot import UsbBootExecutor
+from arch_installer.expected_state import EXPECTED_STATE_PATH, expected_state_file
 
 logger = logging.getLogger(__name__)
 
@@ -94,6 +95,7 @@ class Installer:
             section.executor(self._config, self._runner).execute()
 
         self._install_utility_scripts()
+        self._write_expected_state()
         self._write_final_config()
         logger.info(log.banner("Installation complete"))
 
@@ -114,6 +116,14 @@ class Installer:
         for source, name in UTILITY_SCRIPTS:
             if file_exists(self._runner, source):
                 self._runner.run(f"install -m 755 {source} {scripts_directory}/{name}")
+
+    def _write_expected_state(self) -> None:
+        target_path = f"{TARGET_ROOT}{EXPECTED_STATE_PATH}"
+        self._runner.run(f"install -d -m 755 {target_path.rsplit('/', 1)[0]}")
+        write_file(self._runner, target_path, expected_state_file(self._config))
+        # verify-install runs as root and sources this file, so only root may change it
+        self._runner.run(f"chmod 644 {target_path}")
+        logger.info("Wrote %s", EXPECTED_STATE_PATH)
 
     def _write_final_config(self) -> None:
         username = self._config.system.user.name

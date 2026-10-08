@@ -1,6 +1,6 @@
 from dataclasses import replace
 
-from arch_installer.config.models import LocaleConfig, UserConfig
+from arch_installer.config.models import UserConfig
 from arch_installer.executors.system import (
     SystemExecutor,
     hosts_file,
@@ -17,7 +17,7 @@ class TestSystemTemplates:
         assert "localhost" in content
 
     def test_locale_conf_sets_lang_and_only_differing_categories(self):
-        locale = LocaleConfig(monetary="fr_FR.UTF-8")
+        locale = replace(build_config().system.locale, monetary="fr_FR.UTF-8")
         content = locale_conf(locale)
         assert "LANG=en_US.UTF-8" in content
         assert "LC_MONETARY=fr_FR.UTF-8" in content
@@ -25,7 +25,7 @@ class TestSystemTemplates:
         assert "LC_NUMERIC" not in content
 
     def test_locales_to_generate_is_deduplicated(self):
-        locale = LocaleConfig(monetary="fr_FR.UTF-8", paper="fr_FR.UTF-8")
+        locale = replace(build_config().system.locale, monetary="fr_FR.UTF-8", paper="fr_FR.UTF-8")
         generated = locales_to_generate(locale)
         assert generated == sorted(set(generated))
         assert "en_US.UTF-8" in generated

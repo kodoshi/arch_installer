@@ -1,0 +1,195 @@
+# complete configuration the unit tests start from (tests/unit/conftest.py build_config);
+# every setting is explicit, as the installer requires
+system:
+  hostname: testhost
+  timezone: UTC
+  locale:
+    language: en_US
+    encoding: UTF-8
+    keymap: us
+    monetary: en_US.UTF-8
+    time_format: en_US.UTF-8
+    numeric: en_US.UTF-8
+    paper: en_US.UTF-8
+  user:
+    name: testuser
+    groups:
+    - wheel
+  mirrors:
+    mirrors: []
+    use_reflector: false
+    reflector_countries:
+    - France
+    - Germany
+    - Netherlands
+  cpu_vendor: ''
+packages:
+  base:
+  - base
+  - linux
+  - linux-firmware
+  - btrfs-progs
+  desktops:
+    kde: []
+    gnome: []
+    hyprland: []
+  selected_desktops: []
+  display_manager: []
+  cataloged: []
+storage:
+  target_disk: /dev/loop0
+  efi_size_mb: 512
+  wipe_method: quick
+  luks:
+    type: luks2
+    cipher: aes-xts-plain64
+    key_size: 512
+    hash: sha512
+    pbkdf: argon2id
+    pbkdf_memory: 1048576
+    pbkdf_parallel: 4
+    pbkdf_time_ms: 4000
+  btrfs:
+    label: archroot
+    mount_options: compress=zstd,noatime
+    subvolumes:
+    - name: '@'
+      mountpoint: /
+      nocow: false
+    - name: '@home'
+      mountpoint: /home
+      nocow: false
+  swap:
+    enabled: true
+    size_mb: 1024
+    path: /.swap/swapfile
+    hibernation: false
+boot:
+  kernels:
+  - name: mainline
+    package: linux
+  selected_kernels: []
+  variants: []
+  cmdline:
+    rootflags: subvol=@
+    rootfstype: btrfs
+    rw: true
+    quiet: true
+    hardening:
+      lockdown: integrity
+      iommu: force
+      intel_iommu: 'on'
+      amd_iommu: force_isolation
+      pti: 'on'
+      spectre_v2: 'on'
+      spec_store_bypass_disable: 'on'
+      l1tf: full,force
+      mds: full,nosmt
+      srbds: 'on'
+      tsx_async_abort: full,nosmt
+      init_on_alloc: 1
+      init_on_free: 1
+  loader:
+    timeout: 20
+    console_mode: max
+    editor: false
+  hooks:
+  - systemd
+  - autodetect
+  - microcode
+  - modconf
+  - kms
+  - keyboard
+  - sd-vconsole
+  - block
+  - sd-encrypt
+  - filesystems
+  - fsck
+  secure_boot:
+    enroll_keys: true
+    include_microsoft_keys: true
+  enable_snapshot_boot: false
+gpu:
+  vendor: none
+  driver: ''
+  drivers:
+    amd: []
+    intel: []
+    nouveau: []
+    nvidia_dkms: []
+    nvidia_open: []
+snapper:
+  enabled: true
+  allow_groups:
+  - wheel
+  root:
+    subvolume: /
+    snapshots_subvolume: '@snapshots'
+    snapshots_path: /.snapshots
+    timeline: true
+    cleanup: true
+    number_limit: 10
+    number_limit_important: 5
+    retention:
+      hourly: 5
+      daily: 7
+      weekly: 4
+      monthly: 6
+      yearly: 2
+  home:
+    subvolume: /home
+    snapshots_subvolume: '@home-snapshots'
+    snapshots_path: /home/.snapshots
+    timeline: true
+    cleanup: true
+    number_limit: 5
+    number_limit_important: 3
+    retention:
+      hourly: 5
+      daily: 7
+      weekly: 4
+      monthly: 3
+      yearly: 1
+  snap_pac: true
+  bootable_snapshot_count: 5
+firewall:
+  enabled: true
+  default_incoming: deny
+  default_outgoing: allow
+  logging: true
+  block_icmp: true
+  ssh:
+    enabled: false
+    port: 22
+    allowed_from: ''
+  allow_rules: []
+docker:
+  enabled: false
+  storage_driver: overlay2
+  data_root: /var/lib/docker
+  access_group: docker_access
+notifications:
+  enabled: true
+sync:
+  backup_items: []
+  backup_categories:
+  - dotfiles
+  - keepass
+  - browser
+  - system
+migration:
+  enabled: false
+  preserve_home: true
+  preserve_secure_boot_keys: true
+  additional_paths: []
+usb_boot:
+  enabled: false
+  device: ''
+  efi_size_mb: 512
+  iso_partition_size_mb: 1024
+  iso_path: ''
+  detached_luks_header: true
+  backup_partition_size_mb: 0
+secrets:
+  luks_password_encrypted: ''
+  user_password_encrypted: ''

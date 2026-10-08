@@ -24,7 +24,8 @@ from arch_installer.executors.gpu import NVIDIA_INITRAMFS_MODULES
 logger = logging.getLogger(__name__)
 
 UKI_DIRECTORY = "/efi/EFI/Linux"
-DEFAULT_VARIANT = UkiVariantConfig("default")
+# the UKI without extra kernel parameters always exists; its files carry the suffix "default"
+PLAIN_VARIANT = UkiVariantConfig(suffix="default", params="")
 BOOTLOADER_BINARIES = ("/efi/EFI/BOOT/BOOTX64.EFI", "/efi/EFI/systemd/systemd-bootx64.efi")
 
 
@@ -106,11 +107,11 @@ def kernel_cmdline(config: InstallerConfig, luks_uuid: str, resume_offset: str |
 
 
 def uki_variants(config: InstallerConfig) -> tuple[UkiVariantConfig, ...]:
-    # the plain "default" UKI always exists; each other configured variant adds one per kernel
+    # each configured variant other than the plain one adds a UKI per kernel
     extra = tuple(
-        variant for variant in config.boot.variants if variant.suffix != DEFAULT_VARIANT.suffix
+        variant for variant in config.boot.variants if variant.suffix != PLAIN_VARIANT.suffix
     )
-    return (DEFAULT_VARIANT, *extra)
+    return (PLAIN_VARIANT, *extra)
 
 
 class UkiExecutor(Executor):

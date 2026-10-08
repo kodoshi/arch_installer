@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # post-installation verification script
 # verifies Secure Boot, UKI, encryption, BTRFS, firewall, and system configuration
-# usage: sudo ./verify_install.sh [--fix] [--verbose]
+# usage: sudo ./verify_install.sh [--fix] [--verbose] [--expected-state FILE]
+# the expected values come from the file the installer writes (see expected_state.py)
 
 set -Euo pipefail
 
@@ -11,20 +12,7 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m'
 
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-
-# try to find final_config.yaml in user's home first, fallback to original
-CURRENT_USER="${SUDO_USER:-$USER}"
-FINAL_CFG="/home/${CURRENT_USER}/final_config.yaml"
-ORIGINAL_CFG="${SCRIPT_DIR}/../config/config.yaml"
-
-if [[ -f "$FINAL_CFG" ]]; then
-    CFG="$FINAL_CFG"
-elif [[ -f "$ORIGINAL_CFG" ]]; then
-    CFG="$ORIGINAL_CFG"
-else
-    CFG=""
-fi
+EXPECTED_STATE_FILE="/etc/dali/expected-state.env"
 
 PASS_COUNT=0
 FAIL_COUNT=0
@@ -43,8 +31,8 @@ while [[ $# -gt 0 ]]; do
             VERBOSE=true
             shift
             ;;
-        --config)
-            CFG="$2"
+        --expected-state)
+            EXPECTED_STATE_FILE="$2"
             shift 2
             ;;
         *)
@@ -89,20 +77,23 @@ check_root() {
     fi
 }
 
-get_config() {
-    local key="$1"
-    local default="${2:-}"
-    if command -v yq &>/dev/null && [[ -f "$CFG" ]]; then
-        local value
-        value=$(yq -r "$key // \"$default\"" "$CFG" 2>/dev/null)
-        if [[ "$value" == "null" || -z "$value" ]]; then
-            echo "$default"
-        else
-            echo "$value"
-        fi
-    else
-        echo "$default"
+# this script runs as root and sources the file, so a file that anyone but the running
+# user (root) could have written is refused rather than executed
+load_expectations() {
+    if [[ ! -f "$EXPECTED_STATE_FILE" ]]; then
+        log_warn "No expectations file at $EXPECTED_STATE_FILE: config-dependent checks are skipped"
+        return
     fi
+    local owner_and_mode
+    owner_and_mode=$(stat -c '%u %a' "$EXPECTED_STATE_FILE")
+    local owner="${owner_and_mode%% *}" mode="${owner_and_mode##* }"
+    if [[ "$owner" != "$EUID" ]] || (( 8#$mode & 8#022 )); then
+        log_fail "$EXPECTED_STATE_FILE must be owned by uid $EUID and writable only by it (owner $owner, mode $mode)"
+        return
+    fi
+    # shellcheck source=/dev/null
+    source "$EXPECTED_STATE_FILE"
+    log_info "Using expectations from $EXPECTED_STATE_FILE"
 }
 
 
@@ -226,21 +217,17 @@ verify_uki() {
         log_pass "Found $uki_count UKI file(s)"
     fi
 
-    # check expected kernels from config
+    # every configured kernel package has UKIs named arch-<package>-<variant>.efi
     echo ""
     echo "  Verifying configured kernels have UKIs:"
-    if [[ -f "$CFG" ]] && command -v yq &>/dev/null; then
-        while IFS= read -r kernel_name; do
-            if [[ -n "$kernel_name" ]]; then
-                if ls "$uki_dir"/arch-linux-"$kernel_name"-*.efi &>/dev/null || \
-                   ls "$uki_dir"/arch-"$kernel_name"-*.efi &>/dev/null; then
-                    log_pass "UKI exists for kernel: $kernel_name"
-                else
-                    log_fail "No UKI found for kernel: $kernel_name"
-                fi
-            fi
-        done < <(yq -r '.boot.kernels[].name // empty' "$CFG" 2>/dev/null)
-    fi
+    local kernel_package
+    for kernel_package in ${EXPECTED_KERNEL_PACKAGES:-}; do
+        if compgen -G "$uki_dir/arch-${kernel_package}-*.efi" >/dev/null; then
+            log_pass "UKI exists for kernel: $kernel_package"
+        else
+            log_fail "No UKI found for kernel: $kernel_package"
+        fi
+    done
 }
 
 
@@ -435,11 +422,9 @@ verify_btrfs() {
 verify_swap() {
     log_section "SWAP VERIFICATION"
 
-    local swap_path="/.swap/swapfile"
-    local swap_enabled
-    swap_enabled=$(get_config '.storage.swap.enabled' 'true')
+    local swap_path="${EXPECTED_SWAP_PATH:-/.swap/swapfile}"
 
-    if [[ "$swap_enabled" == "false" ]]; then
+    if [[ "${EXPECTED_SWAP_ENABLED:-}" == "false" ]]; then
         log_info "Swap is disabled in config"
         return
     fi
@@ -496,8 +481,7 @@ verify_system_config() {
     log_section "SYSTEM CONFIGURATION VERIFICATION"
 
     # hostname
-    local expected_hostname
-    expected_hostname=$(get_config '.system.hostname' '')
+    local expected_hostname="${EXPECTED_HOSTNAME:-}"
     local actual_hostname
     # use hostname command if available, otherwise read from /etc/hostname
     if command -v hostname &>/dev/null; then
@@ -519,28 +503,22 @@ verify_system_config() {
     fi
 
     # timezone
-    local expected_tz
-    expected_tz=$(get_config '.system.timezone' '')
-    local actual_tz
-    actual_tz=$(timedatectl show --property=Timezone --value 2>/dev/null || readlink /etc/localtime | sed 's|.*/zoneinfo/||')
+    local expected_timezone="${EXPECTED_TIMEZONE:-}"
+    local actual_timezone
+    actual_timezone=$(timedatectl show --property=Timezone --value 2>/dev/null || readlink /etc/localtime | sed 's|.*/zoneinfo/||')
 
-    if [[ -n "$expected_tz" ]]; then
-        if [[ "$actual_tz" == "$expected_tz" ]]; then
-            log_pass "Timezone: $actual_tz"
+    if [[ -n "$expected_timezone" ]]; then
+        if [[ "$actual_timezone" == "$expected_timezone" ]]; then
+            log_pass "Timezone: $actual_timezone"
         else
-            log_fail "Timezone mismatch: expected '$expected_tz', got '$actual_tz'"
+            log_fail "Timezone mismatch: expected '$expected_timezone', got '$actual_timezone'"
         fi
     else
-        log_info "Timezone: $actual_tz"
+        log_info "Timezone: $actual_timezone"
     fi
 
     # locale
-    local expected_locale=""
-    local locale_language
-    locale_language=$(get_config '.system.locale.language' '')
-    if [[ -n "$locale_language" ]]; then
-        expected_locale="${locale_language}.$(get_config '.system.locale.encoding' 'UTF-8')"
-    fi
+    local expected_locale="${EXPECTED_LOCALE:-}"
     local actual_locale
     actual_locale=$(localectl status | grep "System Locale" | sed 's/.*LANG=//')
 
@@ -555,8 +533,7 @@ verify_system_config() {
     fi
 
     # keymap
-    local expected_keymap
-    expected_keymap=$(get_config '.system.locale.keymap' '')
+    local expected_keymap="${EXPECTED_KEYMAP:-}"
     local actual_keymap
     actual_keymap=$(localectl status | grep "VC Keymap" | awk '{print $3}')
 
@@ -571,8 +548,7 @@ verify_system_config() {
     fi
 
     # user
-    local expected_user
-    expected_user=$(get_config '.system.user.name' '')
+    local expected_user="${EXPECTED_USER:-}"
     if [[ -n "$expected_user" ]]; then
         if id "$expected_user" &>/dev/null; then
             log_pass "User exists: $expected_user"
@@ -631,30 +607,26 @@ verify_services() {
     # essential services
     local essential_services=("systemd-resolved" "systemd-timesyncd")
 
-    for svc in "${essential_services[@]}"; do
-        if systemctl is-active --quiet "$svc"; then
-            log_pass "$svc is running"
+    for service in "${essential_services[@]}"; do
+        if systemctl is-active --quiet "$service"; then
+            log_pass "$service is running"
         else
-            log_warn "$svc is NOT running"
+            log_warn "$service is NOT running"
         fi
     done
 
     # every configured display manager should be enabled
-    local dm_name
-    while read -r dm_name; do
-        [[ -z "$dm_name" ]] && continue
-        if systemctl is-enabled --quiet "$dm_name"; then
-            log_pass "Display manager ($dm_name) is enabled"
+    local display_manager
+    for display_manager in ${EXPECTED_DISPLAY_MANAGERS:-}; do
+        if systemctl is-enabled --quiet "$display_manager"; then
+            log_pass "Display manager ($display_manager) is enabled"
         else
-            log_fail "Display manager ($dm_name) is NOT enabled"
+            log_fail "Display manager ($display_manager) is NOT enabled"
         fi
-    done < <(get_config '.packages.display_manager[]' '')
+    done
 
     # check snapper if enabled
-    local snapper_enabled
-    snapper_enabled=$(get_config '.snapper.enabled' 'false')
-
-    if [[ "$snapper_enabled" == "true" ]]; then
+    if [[ "${EXPECTED_SNAPPER_ENABLED:-}" == "true" ]]; then
         echo ""
         echo "  Snapper services:"
         if systemctl is-enabled --quiet snapper-timeline.timer; then
@@ -759,10 +731,8 @@ verify_gpu() {
         fi
     fi
 
-    local gpu_vendor
-    gpu_vendor=$(get_config '.gpu.vendor' 'none')
-    local gpu_driver
-    gpu_driver=$(get_config '.gpu.driver' '')
+    local gpu_vendor="${EXPECTED_GPU_VENDOR:-none}"
+    local gpu_driver="${EXPECTED_GPU_DRIVER:-}"
 
     if [[ "$gpu_vendor" == "none" ]]; then
         log_info "No GPU vendor configured"
@@ -835,6 +805,11 @@ verify_fstab() {
 
 verify_firewall() {
     log_section "FIREWALL (UFW)"
+
+    if [[ "${EXPECTED_FIREWALL_ENABLED:-}" == "false" ]]; then
+        log_info "Firewall is disabled in the configuration"
+        return
+    fi
 
     if ! command -v ufw &>/dev/null; then
         log_fail "UFW is not installed"
@@ -963,13 +938,7 @@ main() {
     echo ""
 
     check_root
-
-    if [[ -f "$CFG" ]]; then
-        log_info "Using config: $CFG"
-    else
-        echo -e "${YELLOW}Warning: Config file not found${NC}"
-        echo ""
-    fi
+    load_expectations
 
     verify_secure_boot
     verify_uki
@@ -989,4 +958,7 @@ main() {
     print_summary
 }
 
-main "$@"
+# sourcing the script (as the unit tests do) defines the functions without running them
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+    main "$@"
+fi

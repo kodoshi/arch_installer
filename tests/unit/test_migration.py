@@ -13,7 +13,7 @@ from tests.unit.conftest import build_config
 
 
 def migration_config(**overrides) -> MigrationConfig:
-    return replace(MigrationConfig(enabled=True), **overrides)
+    return replace(build_config().migration, enabled=True, **overrides)
 
 
 @pytest.fixture

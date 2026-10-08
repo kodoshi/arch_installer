@@ -3,10 +3,11 @@ from pathlib import Path
 import pytest
 import yaml
 
+from arch_installer.config.models import LUKS_PASSWORD_SECRET, USER_PASSWORD_SECRET
 from arch_installer.core.secrets import encrypt_secret
 from tests.qemu.assertions import InstallationAssertions
 from tests.qemu.ssh_config import SSH_CONFIG_COMMANDS_FOR_INSTALLED_SYSTEM
-from tests.qemu.tmux_driver import TmuxScreenInput, TmuxSession
+from tests.qemu.tmux_driver import INSTALL_TMUX_IF_MISSING, TmuxScreenInput, TmuxSession
 from tests.qemu.uefi_setup import (
     print_secure_boot_summary,
     verify_secure_boot_properly_configured,
@@ -142,8 +143,8 @@ def write_config_with_encrypted_passwords(
 ) -> Path:
     config = load_test_config(source_name)
     config["secrets"] = {
-        "luks_password_encrypted": encrypt_secret(password, SECRETS_KEY),
-        "user_password_encrypted": encrypt_secret(password, SECRETS_KEY),
+        "luks_password_encrypted": encrypt_secret(password, SECRETS_KEY, LUKS_PASSWORD_SECRET),
+        "user_password_encrypted": encrypt_secret(password, SECRETS_KEY, USER_PASSWORD_SECRET),
     }
     destination.write_text(yaml.safe_dump(config, sort_keys=False))
     return destination
@@ -341,7 +342,10 @@ class TestQemuFullInstallation:
         print("\n=== phase 5.6: verify final config file ===")
         post_boot_assertions.assert_final_config_written(username)
 
-        print("\n=== phase 5.7: verify dotfiles-sync functionality ===")
+        print("\n=== phase 5.7: verify-install against the installer's expectations ===")
+        post_boot_assertions.assert_verify_install_finds_no_failures(config["system"]["hostname"])
+
+        print("\n=== phase 5.8: verify dotfiles-sync functionality ===")
         self._test_dotfiles_sync(vm, username)
 
         post_boot_assertions.raise_if_failed()
@@ -1040,7 +1044,7 @@ files:
             "maximal_config.yaml", tmp_path / "config.yaml", "testpassword"
         )
         setup_vm_for_install(vm, config_path=config_path)
-        run_checked(vm, ["pacman -S --noconfirm tmux"], timeout=120)
+        run_checked(vm, [INSTALL_TMUX_IF_MISSING], timeout=120)
 
         print("\n=== phase 2: start installer in tmux session ===")
         installer = TmuxSession(vm, "install")

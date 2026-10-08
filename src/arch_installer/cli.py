@@ -1,9 +1,9 @@
 """command-line entry points: `arch-installer`, `usb-init`, `usb-backup`, and the
 secrets helpers behind `make encrypt-secrets` / `make decrypt-secrets`.
 
-each installer entry point resolves the configuration the same way (defaults,
-config.yaml, encrypted secrets, environment variables, then the TUI when interactive)
-and hands the finished InstallerConfig to an orchestrator or a single executor.
+each installer entry point assembles its InstallerConfig the same way: environment
+variables over config.yaml (see value_precedence.py), then, when interactive, the TUI,
+which shows each inherited value and may replace it. nothing comes from code defaults.
 """
 
 import getpass
@@ -11,13 +11,35 @@ import logging
 import os
 import sys
 from collections.abc import Callable, Mapping
-from dataclasses import replace
 from pathlib import Path
+from typing import Any
 
-from arch_installer.config.environment import Environment, EnvVariable, unlock_secrets
-from arch_installer.config.loader import DEFAULT_CONFIG_PATH, load_config
-from arch_installer.config.models import EncryptedSecretsConfig, InstallerConfig
+from arch_installer.config.config_file import (
+    REPOSITORY_CONFIG_PATH,
+    config_file_setting_values,
+    decrypted_credentials,
+    has_encrypted_credentials,
+    read_config_file,
+)
+from arch_installer.config.environment import Environment, EnvVariable, variable_for_setting
+from arch_installer.config.installer_config_builder import (
+    MissingSettingsError,
+    build_installer_config,
+)
+from arch_installer.config.models import (
+    LUKS_PASSWORD_SECRET,
+    USER_PASSWORD_SECRET,
+    EncryptedSecretsConfig,
+    InstallerConfig,
+)
 from arch_installer.config.secrets_file import write_encrypted_secrets
+from arch_installer.config.value_precedence import (
+    SettingValue,
+    ValueSource,
+    apply_tui_choices,
+    inherit_setting_values,
+    plain_values,
+)
 from arch_installer.core import log
 from arch_installer.core.command import SystemCommandRunner
 from arch_installer.core.secrets import encrypt_secret
@@ -39,38 +61,76 @@ def _log_level(environment: Environment) -> int:
     return logging.INFO
 
 
+# the interactive step: shown the inherited values, returns the values the user chose
+TuiSetup = Callable[[Mapping[str, SettingValue]], Mapping[str, Any]]
+
+
 def _is_interactive(environment: Environment) -> bool:
-    return not environment.flag(EnvVariable.NON_INTERACTIVE)
+    return not environment.switch_is_on(EnvVariable.NON_INTERACTIVE)
 
 
-def resolve_config(
-    environment: Environment,
-    interactive: bool,
-    tui: Callable[[InstallerConfig], InstallerConfig] | None = None,
-) -> InstallerConfig:
-    config = load_config(environment.text(EnvVariable.CONFIG_PATH) or None)
-    config = _unlock_if_needed(config, environment, interactive)
-    config = environment.override(config)
-    if interactive and tui is not None:
-        config = tui(config)
-    return config
+def _config_path(environment: Environment) -> Path:
+    return Path(environment.text(EnvVariable.CONFIG_PATH) or REPOSITORY_CONFIG_PATH)
 
 
-def _unlock_if_needed(
-    config: InstallerConfig, environment: Environment, interactive: bool
-) -> InstallerConfig:
-    both_from_env = environment.is_set(EnvVariable.LUKS_PASSWORD) and environment.is_set(
-        EnvVariable.USER_PASSWORD
+def assemble_installer_config(environment: Environment, tui: TuiSetup | None) -> InstallerConfig:
+    environment_values = environment.setting_values()
+    config_file_values = config_file_setting_values(read_config_file(_config_path(environment)))
+    config_file_values |= _unlocked_passwords(
+        config_file_values, environment_values, environment, tui
     )
-    if not config.secrets.configured or both_from_env:
-        return config
+
+    inherited = inherit_setting_values(
+        {
+            ValueSource.ENVIRONMENT: environment_values,
+            ValueSource.CONFIG_FILE: config_file_values,
+        }
+    )
+    final_values = inherited if tui is None else apply_tui_choices(inherited, tui(inherited))
+    _log_value_sources(final_values)
+    try:
+        return build_installer_config(plain_values(final_values))
+    except MissingSettingsError as error:
+        raise ConfigurationError(_explain_missing(error.setting_paths)) from error
+
+
+# the passwords encrypted in config.yaml are only unlocked when the environment does not
+# already provide both of them; the key is asked for when it is not in the environment
+def _unlocked_passwords(
+    config_file_values: Mapping[str, Any],
+    environment_values: Mapping[str, Any],
+    environment: Environment,
+    tui: TuiSetup | None,
+) -> dict[str, str]:
+    credentials_from_environment = {
+        "credentials.luks_password",
+        "credentials.user_password",
+    } <= environment_values.keys()
+    if not has_encrypted_credentials(config_file_values) or credentials_from_environment:
+        return {}
 
     secrets_key = environment.text(EnvVariable.SECRETS_KEY)
-    if not secrets_key and interactive:
+    if not secrets_key and tui is not None:
         secrets_key = _ask_secret("Secrets decryption key", confirm=False)
     if not secrets_key:
-        return config
-    return unlock_secrets(config, secrets_key)
+        return {}
+    return decrypted_credentials(config_file_values, secrets_key)
+
+
+def _log_value_sources(final_values: Mapping[str, SettingValue]) -> None:
+    for source in (ValueSource.ENVIRONMENT, ValueSource.TUI):
+        paths = sorted(path for path, setting in final_values.items() if setting.source == source)
+        if paths:
+            logger.info("Settings from the %s: %s", source, ", ".join(paths))
+
+
+def _explain_missing(setting_paths: list[str]) -> str:
+    lines = []
+    for setting_path in setting_paths:
+        variable = variable_for_setting(setting_path)
+        alternative = f" or {variable}" if variable else ""
+        lines.append(f"{setting_path} (config.yaml{alternative})")
+    return "No source provides these settings:\n  - " + "\n  - ".join(lines)
 
 
 def validate_for_install(config: InstallerConfig) -> None:
@@ -108,14 +168,14 @@ def _run(entry: Callable[[Environment], None], variables: Mapping[str, str]) -> 
 
 
 def _install(environment: Environment) -> None:
-    interactive = _is_interactive(environment)
-    config = resolve_config(environment, interactive, tui=run_tui_setup)
+    tui = run_tui_setup if _is_interactive(environment) else None
+    config = assemble_installer_config(environment, tui)
     validate_for_install(config)
     Installer(config, SystemCommandRunner()).install()
 
 
 def _usb_init(environment: Environment) -> None:
-    config = resolve_config(environment, interactive=False)
+    config = assemble_installer_config(environment, tui=None)
     if not config.usb_boot.device:
         raise ConfigurationError(
             f"No USB device ({EnvVariable.USB_BOOT_DEVICE} or usb_boot.device)"
@@ -126,7 +186,7 @@ def _usb_init(environment: Environment) -> None:
 
 
 def _usb_backup(environment: Environment) -> None:
-    config = resolve_config(environment, interactive=False)
+    config = assemble_installer_config(environment, tui=None)
     UsbBackupExecutor(config, SystemCommandRunner()).execute()
 
 
@@ -159,8 +219,8 @@ def _required_secrets_key(environment: Environment, confirm: bool) -> str:
     return secrets_key
 
 
-def _encrypt_if_given(password: str, secrets_key: str) -> str:
-    return encrypt_secret(password, secrets_key) if password else ""
+def _encrypt_if_given(password: str, secrets_key: str, secret_name: str) -> str:
+    return encrypt_secret(password, secrets_key, secret_name) if password else ""
 
 
 # a password kept from the file must open with the same key, or the file would mix two keys
@@ -168,18 +228,19 @@ def _encrypt_if_given(password: str, secrets_key: str) -> str:
 def _refuse_mixed_keys(
     config_path: Path, secrets: EncryptedSecretsConfig, secrets_key: str
 ) -> None:
-    config = load_config(config_path)
-    stored = config.secrets
-    merged = EncryptedSecretsConfig(
-        luks_password_encrypted=secrets.luks_password_encrypted or stored.luks_password_encrypted,
-        user_password_encrypted=secrets.user_password_encrypted or stored.user_password_encrypted,
-    )
+    stored = config_file_setting_values(read_config_file(config_path))
+    merged = {
+        "secrets.luks_password_encrypted": secrets.luks_password_encrypted
+        or stored.get("secrets.luks_password_encrypted"),
+        "secrets.user_password_encrypted": secrets.user_password_encrypted
+        or stored.get("secrets.user_password_encrypted"),
+    }
     try:
-        unlock_secrets(replace(config, secrets=merged), secrets_key)
+        decrypted_credentials(merged, secrets_key)
     except ConfigurationError as error:
         raise ConfigurationError(
-            "A password kept from the config file was encrypted with a different key; "
-            "enter both passwords to encrypt them with this key"
+            "A password kept from the config file does not open with this key (another key, "
+            "or the old format); enter both passwords to encrypt them with this key"
         ) from error
 
 
@@ -197,16 +258,16 @@ def _encrypt_secrets(environment: Environment) -> None:
             f"No passwords provided ({EnvVariable.LUKS_PASSWORD} and/or {EnvVariable.USER_PASSWORD})"
         )
     secrets = EncryptedSecretsConfig(
-        luks_password_encrypted=_encrypt_if_given(luks_password, secrets_key),
-        user_password_encrypted=_encrypt_if_given(user_password, secrets_key),
+        luks_password_encrypted=_encrypt_if_given(luks_password, secrets_key, LUKS_PASSWORD_SECRET),
+        user_password_encrypted=_encrypt_if_given(user_password, secrets_key, USER_PASSWORD_SECRET),
     )
     print(f"luks_password_encrypted: {secrets.luks_password_encrypted or 'N/A'}")
     print(f"user_password_encrypted: {secrets.user_password_encrypted or 'N/A'}")
 
-    if environment.flag(EnvVariable.NO_WRITE):
+    if environment.switch_is_on(EnvVariable.NO_WRITE):
         logger.info("%s is set, the config file was not modified", EnvVariable.NO_WRITE)
         return
-    config_path = Path(environment.text(EnvVariable.CONFIG_PATH) or DEFAULT_CONFIG_PATH)
+    config_path = _config_path(environment)
     _refuse_mixed_keys(config_path, secrets, secrets_key)
     write_encrypted_secrets(config_path, secrets)
     logger.info("Updated secrets in %s", config_path)
@@ -214,10 +275,10 @@ def _encrypt_secrets(environment: Environment) -> None:
 
 def _decrypt_secrets(environment: Environment) -> None:
     secrets_key = _required_secrets_key(environment, confirm=False)
-    config = load_config(environment.text(EnvVariable.CONFIG_PATH) or None)
-    credentials = unlock_secrets(config, secrets_key).credentials
-    print(f"LUKS: {credentials.luks_password or 'N/A'}")
-    print(f"User: {credentials.user_password or 'N/A'}")
+    config_file_values = config_file_setting_values(read_config_file(_config_path(environment)))
+    credentials = decrypted_credentials(config_file_values, secrets_key)
+    print(f"LUKS: {credentials.get('credentials.luks_password', 'N/A')}")
+    print(f"User: {credentials.get('credentials.user_password', 'N/A')}")
 
 
 def main() -> int:

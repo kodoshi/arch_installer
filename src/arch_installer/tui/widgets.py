@@ -4,8 +4,8 @@ each widget handles its own rendering and input loop, returning
 the user's selection when complete. all widgets are stateless
 functions or simple classes that don't depend on global state.
 
-every widget starts on the value inherited from the resolved config and marks it,
-so Enter keeps it and any other choice overrides it.
+a widget given an inherited value starts on it and marks where it came from, so Enter
+keeps it and any other choice overrides it. without one, nothing is preselected.
 """
 
 import curses
@@ -16,6 +16,20 @@ from dataclasses import dataclass
 class MenuOption:
     value: str
     label: str
+
+
+# a value the setting already has, and the source it came from (shown next to it)
+@dataclass(frozen=True)
+class Inherited[ValueT]:
+    value: ValueT
+    source: str
+
+
+@dataclass(frozen=True)
+class Toggle:
+    key: str
+    label: str
+    inherited: Inherited[bool] | None
 
 
 # key constants
@@ -32,8 +46,6 @@ BORDER_PAD = 2
 TITLE_ROW = 1
 CONTENT_START = 4
 HELP_ROW_OFFSET = 2
-
-INHERITED_TAG = "(inherited)"
 
 
 def init_colors() -> None:
@@ -64,17 +76,18 @@ def _draw_help(window: curses.window, help_text: str) -> None:
     window.attroff(curses.color_pair(3))
 
 
-def _tagged(label: str, is_inherited: bool) -> str:
-    return f"{label}  {INHERITED_TAG}" if is_inherited else label
+def _inherited_tag(inherited: Inherited | None) -> str:
+    return f"  (inherited from {inherited.source})" if inherited else ""
 
 
 def radio_menu(
     window: curses.window,
     title: str,
     options: list[MenuOption],
-    inherited_value: str = "",
+    inherited: Inherited[str] | None,
     description: str = "",
 ) -> str:
+    inherited_value = inherited.value if inherited else None
     cursor = next(
         (index for index, option in enumerate(options) if option.value == inherited_value), 0
     )
@@ -113,7 +126,8 @@ def radio_menu(
                 window.attron(curses.color_pair(4))
                 marker = "   "
 
-            line = f"{marker}{_tagged(option.label, option.value == inherited_value)}"
+            tag = _inherited_tag(inherited) if option.value == inherited_value else ""
+            line = f"{marker}{option.label}{tag}"
             window.addnstr(row, BORDER_PAD, line, max_x - BORDER_PAD * 2 - 1)
 
             if is_cursor:
@@ -151,12 +165,12 @@ def checkbox_menu(
     window: curses.window,
     title: str,
     options: list[MenuOption],
-    inherited_values: list[str] | None = None,
+    inherited: Inherited[list[str]] | None,
     description: str = "",
 ) -> list[str]:
     cursor = 0
-    inherited = set(inherited_values or [])
-    checked = set(inherited)
+    inherited_values = set(inherited.value) if inherited else set()
+    checked = set(inherited_values)
 
     while True:
         window.erase()
@@ -194,7 +208,8 @@ def checkbox_menu(
             else:
                 window.attron(curses.color_pair(4))
 
-            line = f" {checkbox} {_tagged(option.label, option.value in inherited)}"
+            tag = _inherited_tag(inherited) if option.value in inherited_values else ""
+            line = f" {checkbox} {option.label}{tag}"
             window.addnstr(row, BORDER_PAD, line, max_x - BORDER_PAD * 2 - 1)
 
             if is_cursor:
@@ -229,8 +244,8 @@ def checkbox_menu(
 
 @dataclass
 class TextEntry:
-    inherited: str = ""
-    required: bool = False
+    inherited: Inherited[str] | None
+    required: bool
     typed: str = ""
     error: str = ""
 
@@ -251,18 +266,19 @@ class TextEntry:
         return None
 
     def _submit(self) -> str | None:
-        value = self.typed or self.inherited
+        value = self.typed or (self.inherited.value if self.inherited else "")
         if not value and self.required:
             self.error = "This field is required."
             return None
         return value
 
 
-def _inherited_hint(entry: TextEntry, masked: bool) -> str:
-    shown = "(hidden)" if masked else entry.inherited
-    if entry.typed:
-        return f"Inherited: {shown}  (overridden, Esc restores it)"
-    return f"Inherited: {shown}  (Enter keeps it, typing replaces it)"
+def _inherited_hint(inherited: Inherited[str], typed: str, masked: bool) -> str:
+    shown = "(hidden)" if masked else inherited.value
+    origin = f"Inherited from {inherited.source}: {shown}"
+    if typed:
+        return f"{origin}  (overridden, Esc restores it)"
+    return f"{origin}  (Enter keeps it, typing replaces it)"
 
 
 def _draw_text_entry(
@@ -293,8 +309,9 @@ def _draw_text_entry(
     window.addstr(field_row + 1, BORDER_PAD, "└" + "─" * (field_width + 2) + "┘")
 
     if entry.inherited:
+        hint = _inherited_hint(entry.inherited, entry.typed, masked)
         window.attron(curses.color_pair(3))
-        window.addnstr(field_row + 3, BORDER_PAD, _inherited_hint(entry, masked), line_width)
+        window.addnstr(field_row + 3, BORDER_PAD, hint, line_width)
         window.attroff(curses.color_pair(3))
 
     if entry.error:
@@ -310,8 +327,8 @@ def text_input(
     window: curses.window,
     title: str,
     prompt: str,
-    inherited: str = "",
-    required: bool = False,
+    inherited: Inherited[str] | None,
+    required: bool,
     masked: bool = False,
 ) -> str:
     entry = TextEntry(inherited=inherited, required=required)
@@ -328,8 +345,10 @@ def password_input_with_confirm(
     prompt: str,
 ) -> str:
     while True:
-        password = text_input(window, title, prompt, required=True, masked=True)
-        confirm = text_input(window, title, "Confirm password:", required=True, masked=True)
+        password = text_input(window, title, prompt, inherited=None, required=True, masked=True)
+        confirm = text_input(
+            window, title, "Confirm password:", inherited=None, required=True, masked=True
+        )
 
         if password == confirm:
             return password
@@ -344,11 +363,11 @@ def password_input_with_confirm(
         window.getch()
 
 
-# items are (label, value) pairs; a "Group.Field" label is listed under its group
+# items are (label, value, source); a "Group.Field" label is listed under its group
 def confirm_screen(
     window: curses.window,
     title: str,
-    items: list[tuple[str, str]],
+    items: list[tuple[str, str, str]],
 ) -> bool:
     scroll = 0
 
@@ -363,7 +382,7 @@ def confirm_screen(
         current_group = ""
         display_lines: list[tuple[str, str, bool]] = []  # (text, color_pair, is_group_header)
 
-        for label, value in items:
+        for label, value, source in items:
             # detect group changes by checking if there's a category prefix
             parts = label.split(".", 1)
             if len(parts) == 2:
@@ -371,9 +390,9 @@ def confirm_screen(
                 if group != current_group:
                     current_group = group
                     display_lines.append((f"  [{group}]", "group", True))
-                display_lines.append((f"    {field:<25} {value}", "item", False))
+                display_lines.append((f"    {field:<25} {value:<32} {source}", "item", False))
             else:
-                display_lines.append((f"  {label:<27} {value}", "item", False))
+                display_lines.append((f"  {label:<27} {value:<32} {source}", "item", False))
 
         for visible_row in range(min(len(display_lines), max_visible)):
             line_index = visible_row + scroll
@@ -428,23 +447,33 @@ def confirm_screen(
             return False
 
 
-def _toggle_line(label: str, is_on: bool, inherited_on: bool) -> str:
-    switch = " ON " if is_on else " OFF"
-    line = f"  [{switch}]  {label}"
-    if is_on != inherited_on:
-        line += f"  (inherited: {'ON' if inherited_on else 'OFF'})"
-    return line
+def _toggle_line(toggle: Toggle, state: bool | None) -> str:
+    switch = {True: " ON ", False: " OFF", None: "  ? "}[state]
+    line = f"  [{switch}]  {toggle.label}"
+    if toggle.inherited is None:
+        return line + ("  (not set, press Space)" if state is None else "")
+    inherited_switch = "ON" if toggle.inherited.value else "OFF"
+    if state == toggle.inherited.value:
+        return line + _inherited_tag(toggle.inherited)
+    return line + f"  (inherited from {toggle.inherited.source}: {inherited_switch})"
 
 
-# toggles are (key, label, inherited state); returns (key, chosen state) pairs
+def _flipped(state: bool | None) -> bool:
+    return state is not True
+
+
+# returns each toggle's chosen state; a toggle without an inherited state must be set
 def toggle_menu(
     window: curses.window,
     title: str,
-    toggles: list[tuple[str, str, bool]],
+    toggles: list[Toggle],
     description: str = "",
-) -> list[tuple[str, bool]]:
+) -> dict[str, bool]:
     cursor = 0
-    states = {key: inherited for key, _, inherited in toggles}
+    states: dict[str, bool | None] = {
+        toggle.key: toggle.inherited.value if toggle.inherited else None for toggle in toggles
+    }
+    error_message = ""
 
     while True:
         window.erase()
@@ -458,17 +487,17 @@ def toggle_menu(
 
         visible_start = CONTENT_START + (1 if description else 0)
 
-        for toggle_index, (key, label, inherited_on) in enumerate(toggles):
+        for toggle_index, toggle in enumerate(toggles):
             row = visible_start + toggle_index
             is_cursor = toggle_index == cursor
-            is_on = states[key]
+            is_on = states[toggle.key] is True
 
             if is_cursor:
                 window.attron(curses.color_pair(6) | curses.A_BOLD)
             else:
                 window.attron(curses.color_pair(2) if is_on else curses.color_pair(4))
 
-            line = _toggle_line(label, is_on, inherited_on)
+            line = _toggle_line(toggle, states[toggle.key])
             window.addnstr(row, BORDER_PAD, line, max_x - BORDER_PAD * 2 - 1)
 
             if is_cursor:
@@ -479,6 +508,16 @@ def toggle_menu(
             else:
                 window.attroff(curses.color_pair(2) if is_on else curses.color_pair(4))
 
+        if error_message:
+            window.attron(curses.color_pair(5))
+            window.addnstr(
+                visible_start + len(toggles) + 1,
+                BORDER_PAD,
+                error_message,
+                max_x - BORDER_PAD * 2 - 1,
+            )
+            window.attroff(curses.color_pair(5))
+
         _draw_help(window, "[↑↓] Navigate  [Space/Enter] Toggle  [Tab] Continue  [q] Quit")
         window.refresh()
 
@@ -488,10 +527,15 @@ def toggle_menu(
         elif key_pressed == curses.KEY_DOWN and cursor < len(toggles) - 1:
             cursor += 1
         elif key_pressed == KEY_SPACE or key_pressed in ENTER_KEYS:
-            toggle_key = toggles[cursor][0]
-            states[toggle_key] = not states[toggle_key]
+            toggle_key = toggles[cursor].key
+            states[toggle_key] = _flipped(states[toggle_key])
+            error_message = ""
         elif key_pressed == KEY_TAB:
-            return [(toggle_key, states[toggle_key]) for toggle_key, _, _ in toggles]
+            unset = [toggle.label for toggle in toggles if states[toggle.key] is None]
+            if unset:
+                error_message = f"Set every feature first: {', '.join(unset)}"
+                continue
+            return {toggle.key: states[toggle.key] is True for toggle in toggles}
         elif key_pressed == KEY_Q:
             raise KeyboardInterrupt("user quit")
 

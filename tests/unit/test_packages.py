@@ -3,12 +3,8 @@ from dataclasses import replace
 from arch_installer.config.models import (
     CpuVendor,
     Desktop,
-    DesktopPackages,
-    GpuConfig,
     GpuDriver,
-    GpuDriverPackages,
     GpuVendor,
-    PackagesConfig,
 )
 from arch_installer.executors.packages import PackagesExecutor
 from tests.unit.conftest import build_config
@@ -22,7 +18,9 @@ class TestPackageCollection:
     def test_keeps_only_the_matching_microcode(self, fake_runner):
         config = build_config(
             system=replace(build_config().system, cpu_vendor=CpuVendor.INTEL),
-            packages=PackagesConfig(base=("base", "intel-ucode", "amd-ucode", "linux")),
+            packages=replace(
+                build_config().packages, base=("base", "intel-ucode", "amd-ucode", "linux")
+            ),
         )
         collected = packages_executor(config, fake_runner)._collect_packages()
         assert "intel-ucode" in collected
@@ -31,7 +29,9 @@ class TestPackageCollection:
     def test_drops_unselected_kernels_and_their_headers(self, fake_runner):
         base = build_config()
         config = build_config(
-            packages=PackagesConfig(base=("base", "linux", "linux-lts", "linux-lts-headers")),
+            packages=replace(
+                build_config().packages, base=("base", "linux", "linux-lts", "linux-lts-headers")
+            ),
             boot=replace(
                 base.boot,
                 kernels=(
@@ -48,9 +48,10 @@ class TestPackageCollection:
 
     def test_includes_selected_desktop_and_display_manager_packages(self, fake_runner):
         config = build_config(
-            packages=PackagesConfig(
+            packages=replace(
+                build_config().packages,
                 base=("base",),
-                desktops=DesktopPackages(gnome=("gnome", "gdm")),
+                desktops=replace(build_config().packages.desktops, gnome=("gnome", "gdm")),
                 selected_desktops=(Desktop.GNOME,),
                 display_manager=("sddm",),
             )
@@ -60,10 +61,11 @@ class TestPackageCollection:
 
     def test_includes_gpu_driver_packages_for_the_vendor(self, fake_runner):
         config = build_config(
-            gpu=GpuConfig(
+            gpu=replace(
+                build_config().gpu,
                 vendor=GpuVendor.NVIDIA,
                 driver=GpuDriver.NVIDIA_OPEN,
-                drivers=GpuDriverPackages(nvidia_open=("nvidia-open-dkms",)),
+                drivers=replace(build_config().gpu.drivers, nvidia_open=("nvidia-open-dkms",)),
             )
         )
         collected = packages_executor(config, fake_runner)._collect_packages()
@@ -71,7 +73,9 @@ class TestPackageCollection:
 
     def test_appends_cataloged_packages_by_name(self, fake_runner):
         config = build_config(
-            packages=PackagesConfig(base=("base",), cataloged=("neovim", "ripgrep"))
+            packages=replace(
+                build_config().packages, base=("base",), cataloged=("neovim", "ripgrep")
+            )
         )
         collected = packages_executor(config, fake_runner)._collect_packages()
         assert "neovim" in collected and "ripgrep" in collected

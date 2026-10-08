@@ -14,11 +14,11 @@ package "Entry Points (cli.py)" {
         + usb_backup(): int
         + encrypt_secrets(): int
         + decrypt_secrets(): int
-        + resolve_config(environment, interactive, tui): InstallerConfig
+        + assemble_installer_config(environment, tui): InstallerConfig
         + validate_for_install(config)
         --
-        defaults -> config.yaml -> secrets
-        -> environment -> TUI
+        environment > config.yaml,
+        then the TUI has the last word
     }
 }
 
@@ -38,27 +38,44 @@ package "Configuration (config/)" {
         usb_boot: UsbBootConfig
         secrets: EncryptedSecretsConfig
         credentials: Credentials
+        --
+        no field defaults
     }
 
-    class "loader" as loader <<module>> {
-        + load_config(path): InstallerConfig
-        + parse_config(raw): InstallerConfig
-        --
-        walks the model's type hints;
-        unknown keys and wrong types fail
+    class "value_precedence" as value_precedence <<module>> {
+        INHERITANCE_ORDER = (ENVIRONMENT, CONFIG_FILE)
+        + inherit_setting_values(values_by_source)
+        + apply_tui_choices(inherited, choices)
+    }
+
+    class SettingValue <<frozen>> {
+        value
+        source: ValueSource
+    }
+
+    class Environment {
+        + setting_values(): dict
+        + text() / switch_is_on()
     }
 
     enum EnvVariable {
-        LUKS_PASSWORD
         TARGET_DISK
+        LUKS_PASSWORD
         ENABLE_FIREWALL
         ...
     }
 
-    class Environment {
-        + text() / flag() / number()
-        + choice() / choices() / names()
-        + override(config): InstallerConfig
+    class "config_file" as config_file <<module>> {
+        + read_config_file(path)
+        + config_file_setting_values(raw): dict
+        + decrypted_credentials(values, key)
+    }
+
+    class "installer_config_builder" as builder <<module>> {
+        + build_installer_config(values): InstallerConfig
+        --
+        every field required,
+        missing settings reported together
     }
 
     class "secrets_file" as secrets_file <<module>> {
@@ -68,10 +85,10 @@ package "Configuration (config/)" {
 
 package "Interactive Setup (tui/)" {
     class "app" as tui_app <<module>> {
-        + run_tui_setup(config): InstallerConfig
+        + run_tui_setup(inherited): choices
         --
-        every screen starts on the
-        inherited value
+        shows each inherited value and
+        its source; the user may replace it
     }
     class "widgets" as widgets <<module>> {
         radio_menu / checkbox_menu
@@ -79,7 +96,7 @@ package "Interactive Setup (tui/)" {
         confirm_screen / info_screen
     }
     class TextEntry {
-        inherited: str
+        inherited: Inherited | None
         typed: str
         + press(key): str | None
     }
@@ -91,6 +108,7 @@ package "Orchestration (installer.py)" {
         - _runner: CommandRunner
         + install()
         - _install_utility_scripts()
+        - _write_expected_state()
         - _write_final_config()
     }
 
@@ -141,33 +159,38 @@ package "Core (core/)" {
     }
     class SystemCommandRunner
     class "secrets" as crypto <<module>> {
-        + encrypt_secret(plaintext, key): str
-        + decrypt_secret(blob, key): str
+        + encrypt_secret(plaintext, key, setting): str
+        + decrypt_secret(blob, key, setting): str
+        --
+        Argon2id key, AES-256-GCM
     }
     class "log" as log <<module>> {
         + configure_logging(level)
     }
 }
 
-cli --> loader : loads
-cli --> Environment : overrides
+cli --> Environment : environment values
+cli --> config_file : config.yaml values
+cli --> value_precedence : inherits, applies TUI choices
+cli --> builder : builds
 cli --> tui_app : asks (interactive)
 cli --> Installer : runs
 cli --> UsbBootExecutor : usb_init
 cli --> UsbBackupExecutor : usb_init / usb_backup
 cli --> secrets_file : encrypt_secrets
 cli --> log
-
-loader --> InstallerConfig : builds
-Environment --> EnvVariable
-Environment --> InstallerConfig : replace()
-Environment --> crypto : unlock_secrets
-secrets_file --> loader : verifies edit
 cli --> crypto
+
+value_precedence --> SettingValue
+Environment --> EnvVariable
+config_file --> crypto : decrypts passwords
+config_file --> builder
+builder --> InstallerConfig : builds
+secrets_file --> config_file : verifies edit
 
 tui_app --> widgets
 widgets --> TextEntry
-tui_app --> InstallerConfig : replace()
+tui_app --> SettingValue : shows inherited values
 
 Installer o-- "PIPELINE" Section
 Section --> Executor : instantiates

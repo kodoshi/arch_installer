@@ -6,7 +6,7 @@ from tests.unit.conftest import build_config
 
 
 def snapper_config(**overrides) -> SnapperConfig:
-    return replace(SnapperConfig(), **overrides)
+    return replace(build_config().snapper, **overrides)
 
 
 class TestSnapperExecutor:

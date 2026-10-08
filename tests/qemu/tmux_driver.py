@@ -11,6 +11,8 @@ from dataclasses import dataclass
 from tests.qemu.vm import QemuVm
 
 TMUX_KEY_NAMES = {"Enter", "Up", "Down", "Space", "Tab", "y"}
+# the Arch live ISO ships tmux; installing it after `pacman -Sy` would only upgrade it
+INSTALL_TMUX_IF_MISSING = "command -v tmux >/dev/null || pacman -S --noconfirm tmux"
 KEY_INTERVAL_SECONDS = 0.5
 
 

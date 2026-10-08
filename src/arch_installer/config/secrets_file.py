@@ -11,7 +11,7 @@ from pathlib import Path
 
 import yaml
 
-from arch_installer.config.loader import parse_config
+from arch_installer.config.config_file import config_file_setting_values
 from arch_installer.config.models import EncryptedSecretsConfig
 from arch_installer.errors import ConfigurationError
 
@@ -32,12 +32,12 @@ def _set_secret_line(config_text: str, key: str, encrypted_value: str) -> str:
 
 def _verify_stored(config_text: str, secrets: EncryptedSecretsConfig, config_path: Path) -> None:
     try:
-        stored = parse_config(yaml.safe_load(config_text) or {}).secrets
+        stored = config_file_setting_values(yaml.safe_load(config_text) or {})
     except yaml.YAMLError as error:
         raise ConfigurationError(f"Editing {config_path} would break its YAML: {error}") from error
     for secret_field in fields(secrets):
         expected = getattr(secrets, secret_field.name)
-        if expected and getattr(stored, secret_field.name) != expected:
+        if expected and stored.get(f"secrets.{secret_field.name}") != expected:
             raise ConfigurationError(
                 f"Could not place {secret_field.name} under 'secrets' in {config_path}"
             )

@@ -1,6 +1,8 @@
+from dataclasses import replace
+
 import pytest
 
-from arch_installer.config.models import BackupCategory, SyncConfig, UsbBootConfig
+from arch_installer.config.models import BackupCategory, UsbBootConfig
 from arch_installer.core.command import CommandExecutionResult
 from arch_installer.errors import ConfigurationError
 from arch_installer.executors.usb_backup import BACKUP_MOUNT, UsbBackupExecutor, package_catalog
@@ -11,7 +13,10 @@ from tests.unit.conftest import build_config
 def usb_config(**overrides):
     return build_config(
         usb_boot=UsbBootConfig(enabled=True, device="/dev/sdb"),
-        sync=SyncConfig(backup_categories=overrides.get("categories", tuple(BackupCategory))),
+        sync=replace(
+            build_config().sync,
+            backup_categories=overrides.get("categories", tuple(BackupCategory)),
+        ),
     )
 
 

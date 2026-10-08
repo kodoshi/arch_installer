@@ -89,7 +89,7 @@ After installation, you have (by default, unless configured otherwise):
 - **Boot into snapshots**: In boot menu, select a snapshot entry, et voila system restored
 - **Automatic snapshots**: Before/after package operations, hourly/daily/weekly
 - **Signed boot chain**: Secure Boot with your own keys, UKI usage, mkinitcpio hooks, secure snapshots
-- **Hardened defaults**: CPU mitigations enabled, firewall on, kernel locked down
+- **Hardened configuration**: the shipped config.yaml enables CPU mitigations, the firewall and kernel lockdown
 - **BTRFS subvolumes**: Separate subvolumes for `/`, `/home`, `/var`, `/tmp`, etc.
 - **Hibernation**: Able to securely hibernate your system (if swap file enabled)
 - **Dotfiles sync**: `dotfiles-sync` CLI tool to push/pull config files via Git

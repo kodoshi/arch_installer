@@ -30,6 +30,7 @@ system:
 
 storage:
   target_disk: /dev/vda
+  wipe_method: quick
   efi_size_mb: 1024
 
   luks:
@@ -49,15 +50,19 @@ storage:
     subvolumes:
       - name: '@'
         mountpoint: /
+        nocow: false
       - name: '@home'
         mountpoint: /home
+        nocow: false
       - name: '@var'
         mountpoint: /var
         nocow: true
       - name: '@var-log'
         mountpoint: /var/log
+        nocow: false
       - name: '@snapshots'
         mountpoint: /.snapshots
+        nocow: false
       - name: '@swap'
         mountpoint: /.swap
         nocow: true
@@ -120,6 +125,9 @@ boot:
     - filesystems
     - fsck
 
+  # kernel packages to install from the list above; empty installs all of them
+  selected_kernels: []
+
   enable_snapshot_boot: false
 
 packages:
@@ -148,6 +156,8 @@ packages:
     hyprland: []
 
   display_manager: []
+  selected_desktops: []
+  cataloged: []
 
 gpu:
   vendor: none
@@ -163,23 +173,59 @@ gpu:
 # snapper disabled for minimal config
 snapper:
   enabled: false
+  allow_groups:
+    - wheel
+  root: null
+  home: null
+  snap_pac: false
+  bootable_snapshot_count: 5
 
 # firewall disabled for minimal config
 firewall:
   enabled: false
+  default_incoming: deny
+  default_outgoing: allow
+  logging: true
+  block_icmp: true
+  ssh:
+    enabled: false
+    port: 22
+    allowed_from: ''
+  allow_rules: []
 
 # docker disabled for minimal config
 docker:
   enabled: false
+  storage_driver: overlay2
+  data_root: /var/lib/docker
+  access_group: docker_access
 
 notifications:
   enabled: false
 
 sync:
   backup_items: []
+  backup_categories:
+    - dotfiles
+    - keepass
+    - browser
+    - system
+
+# Migration from an existing Arch installation (also ENABLE_MIGRATION)
+migration:
+  enabled: false
+  preserve_home: true
+  preserve_secure_boot_keys: true
+  additional_paths: []
 
 usb_boot:
   enabled: false
+  device: ''
+  efi_size_mb: 512
+  iso_partition_size_mb: 1024
+  iso_path: ''
+  detached_luks_header: true
+  backup_partition_size_mb: 0
 
 secrets:
   luks_password_encrypted: ''

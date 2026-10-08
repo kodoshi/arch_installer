@@ -6,22 +6,23 @@ title Installer Phase Flow
 
 start
 
-partition "Phase 1: Configuration Resolution (cli.py)" {
-    :Model defaults (config/models.py)\n\nconfig/config.yaml, encrypted passwords unlocked\nwith ARCH_INSTALLER_SECRETS_KEY\n\nEnvironment variables (EnvVariable);
+partition "Phase 1: Configuration Assembly (cli.py)" {
+    :Environment variables that are set (EnvVariable)\n\nconfig/config.yaml, encrypted passwords unlocked\nwith ARCH_INSTALLER_SECRETS_KEY;
+    :inherit_setting_values(): environment > config.yaml,\neach value remembers its source;
     if (NON_INTERACTIVE?) then (no)
-        :TUI: every screen starts on the inherited value,\nEnter keeps it, any other choice overrides it;
+        :TUI shows each inherited value and its source,\nEnter keeps it, any other choice replaces it;
     else (yes)
     endif
-    :validate_for_install()\n\nInstallerConfig is frozen from here on;
+    :build_installer_config(): every setting needs a value,\nmissing ones are reported together (no code defaults)\n\nvalidate_for_install(), InstallerConfig is frozen;
 }
 
 partition "Phase 2: Orchestration (installer.py)" {
     :For each enabled Section in PIPELINE:\nMigration staging, Storage, Pacman mirrors, Packages,\nMigration restore, System, Docker, GPU driver,\nKernel images, Bootloader, USB boot drive, Snapper,\nBootable snapshots, Snapshot notifications, Firewall;
-    :Install utility scripts\n\nWrite final_config.yaml (no passwords);
+    :Install utility scripts\n\nWrite /etc/dali/expected-state.env\n\nWrite final_config.yaml (no passwords);
 }
 
 partition "Phase 3: Verification (after reboot)" {
-    :Run verify-install\n\nReport status;
+    :Run verify-install against expected-state.env\n\nReport status;
 }
 
 stop

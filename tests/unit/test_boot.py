@@ -1,7 +1,6 @@
 from dataclasses import replace
 
 from arch_installer.config.models import (
-    SwapConfig,
     UkiVariantConfig,
     UsbBootConfig,
 )
@@ -47,7 +46,7 @@ class TestKernelCmdline:
         assert "header=/luks_header.img:LABEL=LUKSHEADER" in cmdline
 
     def test_resume_is_added_only_with_hibernation(self):
-        swap_on = SwapConfig(enabled=True, size_mb=1024, hibernation=True)
+        swap_on = replace(build_config().storage.swap, enabled=True, size_mb=1024, hibernation=True)
         config = build_config(storage=replace(build_config().storage, swap=swap_on))
         cmdline = kernel_cmdline(config, "uuid-1234", "98765")
         assert "resume=/dev/mapper/cryptroot" in cmdline
@@ -66,13 +65,16 @@ class TestUkiVariants:
     def test_configured_variants_are_added(self):
         config = build_config()
         config = replace(
-            config, boot=replace(config.boot, variants=(UkiVariantConfig("no-dc", "amdgpu.dc=0"),))
+            config,
+            boot=replace(
+                config.boot, variants=(UkiVariantConfig(suffix="no-dc", params="amdgpu.dc=0"),)
+            ),
         )
         suffixes = [variant.suffix for variant in uki_variants(config)]
         assert suffixes == ["default", "no-dc"]
 
     def test_uki_path_encodes_kernel_and_variant(self):
-        path = uki_path("linux", UkiVariantConfig("default"))
+        path = uki_path("linux", UkiVariantConfig(suffix="default", params=""))
         assert path.endswith("arch-linux-default.efi")
 
 
@@ -88,5 +90,5 @@ class TestBootTemplates:
         assert "editor no" in rendered_file
 
     def test_kernel_preset_references_the_uki_path(self):
-        preset = kernel_preset("linux", (UkiVariantConfig("default"),))
+        preset = kernel_preset("linux", (UkiVariantConfig(suffix="default", params=""),))
         assert "arch-linux-default.efi" in preset

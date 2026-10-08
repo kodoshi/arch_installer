@@ -1,7 +1,7 @@
 import pytest
 
 from arch_installer.tui.app import swap_size_options
-from arch_installer.tui.widgets import KEY_ESCAPE, TextEntry
+from arch_installer.tui.widgets import KEY_ESCAPE, Inherited, TextEntry
 
 KEY_ENTER = 10
 KEY_BACKSPACE = 127
@@ -14,14 +14,14 @@ def type_text(entry: TextEntry, text: str) -> None:
 
 class TestTextEntry:
     def test_enter_on_an_untouched_field_keeps_the_inherited_value(self):
-        entry = TextEntry(inherited="testmaximal")
+        entry = TextEntry(inherited=Inherited("testmaximal", "config.yaml"), required=True)
 
         submitted = entry.press(KEY_ENTER)
 
         assert submitted == "testmaximal"
 
     def test_typing_replaces_the_inherited_value(self):
-        entry = TextEntry(inherited="testmaximal")
+        entry = TextEntry(inherited=Inherited("testmaximal", "config.yaml"), required=True)
 
         type_text(entry, "myhost")
         submitted = entry.press(KEY_ENTER)
@@ -30,7 +30,7 @@ class TestTextEntry:
 
     @pytest.mark.parametrize("text", ["aqua", "q", "quasar"])
     def test_the_letter_q_is_typed_like_any_other_character(self, text):
-        entry = TextEntry()
+        entry = TextEntry(inherited=None, required=False)
 
         type_text(entry, text)
         submitted = entry.press(KEY_ENTER)
@@ -38,7 +38,7 @@ class TestTextEntry:
         assert submitted == text
 
     def test_escape_drops_the_override_and_restores_the_inherited_value(self):
-        entry = TextEntry(inherited="us")
+        entry = TextEntry(inherited=Inherited("us", "environment"), required=True)
         type_text(entry, "fi")
 
         entry.press(KEY_ESCAPE)
@@ -47,7 +47,7 @@ class TestTextEntry:
         assert submitted == "us"
 
     def test_backspace_removes_the_last_typed_character(self):
-        entry = TextEntry()
+        entry = TextEntry(inherited=None, required=False)
         type_text(entry, "vdab")
 
         entry.press(KEY_BACKSPACE)
@@ -56,7 +56,7 @@ class TestTextEntry:
         assert submitted == "vda"
 
     def test_required_field_without_value_refuses_enter_and_shows_an_error(self):
-        entry = TextEntry(required=True)
+        entry = TextEntry(inherited=None, required=True)
 
         submitted = entry.press(KEY_ENTER)
 
@@ -64,7 +64,7 @@ class TestTextEntry:
         assert entry.error
 
     def test_typing_after_a_refusal_clears_the_error(self):
-        entry = TextEntry(required=True)
+        entry = TextEntry(inherited=None, required=True)
         entry.press(KEY_ENTER)
 
         type_text(entry, "x")
@@ -72,7 +72,7 @@ class TestTextEntry:
         assert not entry.error
 
     def test_optional_empty_field_submits_an_empty_value(self):
-        entry = TextEntry()
+        entry = TextEntry(inherited=None, required=False)
 
         submitted = entry.press(KEY_ENTER)
 

@@ -1,83 +1,89 @@
 import pytest
 
-from arch_installer.config.environment import Environment, EnvVariable, unlock_secrets
-from arch_installer.config.models import (
-    CpuVendor,
-    Credentials,
-    Desktop,
-    EncryptedSecretsConfig,
-    FirewallConfig,
-    GpuVendor,
-    WipeMethod,
+from arch_installer.config.config_file import config_file_setting_values, read_config_file
+from arch_installer.config.environment import (
+    ENVIRONMENT_SETTINGS,
+    Environment,
+    EnvVariable,
+    variable_for_setting,
 )
-from arch_installer.core.secrets import encrypt_secret
+from arch_installer.config.installer_config_builder import CREDENTIAL_PATHS
+from arch_installer.config.models import CpuVendor, Desktop, GpuVendor, WipeMethod
 from arch_installer.errors import ConfigurationError
-from tests.unit.conftest import build_config
+from tests.unit.conftest import UNIT_CONFIG_PATH
 
 
-def env(**variables: str) -> Environment:
+def environment(**variables: str) -> Environment:
     return Environment(variables)
 
 
-class TestEnvironmentOverride:
-    def test_environment_overrides_config_values(self, test_config):
-        result = env(TARGET_DISK="/dev/nvme0n1", WIPE_METHOD="secure").override(test_config)
-        assert result.storage.target_disk == "/dev/nvme0n1"
-        assert result.storage.wipe_method == WipeMethod.SECURE
+class TestEnvironmentSettingValues:
+    def test_only_variables_that_are_set_provide_values(self):
+        values = environment(TARGET_DISK="/dev/nvme0n1", VERBOSE="true").setting_values()
 
-    def test_unset_variable_keeps_the_config_value(self, test_config):
-        result = env().override(test_config)
-        assert result.storage.target_disk == test_config.storage.target_disk
-        assert result.firewall.enabled == test_config.firewall.enabled
+        assert values == {"storage.target_disk": "/dev/nvme0n1"}
 
-    def test_skip_swap_flag_disables_swap(self, test_config):
-        assert test_config.storage.swap.enabled
-        assert not env(SKIP_SWAP="true").override(test_config).storage.swap.enabled
+    def test_empty_variable_provides_nothing(self):
+        assert environment(TARGET_DISK="  ").setting_values() == {}
 
-    def test_enable_flag_turns_a_feature_on(self):
-        config = build_config(firewall=FirewallConfig(enabled=False))
-        assert env(ENABLE_FIREWALL="true").override(config).firewall.enabled
+    def test_choices_read_as_their_enum(self):
+        values = environment(
+            WIPE_METHOD="secure", CPU_VENDOR="intel", GPU_VENDOR="NVIDIA"
+        ).setting_values()
 
-    def test_list_variables_parse_to_tuples(self, test_config):
-        result = env(SELECTED_DESKTOPS="gnome,kde").override(test_config)
-        assert result.packages.selected_desktops == (Desktop.GNOME, Desktop.KDE)
+        assert values["storage.wipe_method"] == WipeMethod.SECURE
+        assert values["system.cpu_vendor"] == CpuVendor.INTEL
+        assert values["gpu.vendor"] == GpuVendor.NVIDIA
 
-    def test_choice_variables_parse_to_enums(self, test_config):
-        result = env(CPU_VENDOR="intel", GPU_VENDOR="nvidia").override(test_config)
-        assert result.system.cpu_vendor == CpuVendor.INTEL
-        assert result.gpu.vendor == GpuVendor.NVIDIA
+    def test_lists_read_as_tuples(self):
+        values = environment(SELECTED_DESKTOPS="gnome, kde").setting_values()
 
-    def test_invalid_choice_is_rejected_with_the_variable_name(self, test_config):
+        assert values["packages.selected_desktops"] == (Desktop.GNOME, Desktop.KDE)
+
+    def test_skip_swap_turns_swap_off(self):
+        values = environment(SKIP_SWAP="true").setting_values()
+
+        assert values["storage.swap.enabled"] is False
+
+    def test_numbers_read_as_integers(self):
+        assert environment(SWAP_SIZE_MB="2048").setting_values()["storage.swap.size_mb"] == 2048
+
+    def test_invalid_choice_names_the_variable(self):
         with pytest.raises(ConfigurationError, match="GPU_VENDOR"):
-            env(GPU_VENDOR="banana").override(test_config)
+            environment(GPU_VENDOR="banana").setting_values()
 
-    def test_invalid_flag_is_rejected(self, test_config):
+    def test_invalid_flag_names_the_variable(self):
         with pytest.raises(ConfigurationError, match="ENABLE_DOCKER"):
-            env(ENABLE_DOCKER="maybe").override(test_config)
+            environment(ENABLE_DOCKER="maybe").setting_values()
 
-    def test_passwords_come_from_the_environment(self, test_config):
-        result = env(LUKS_PASSWORD="disk", USER_PASSWORD="user").override(test_config)
-        assert result.credentials.luks_password == "disk"
-        assert result.credentials.user_password == "user"
+    def test_passwords_are_credential_settings(self):
+        values = environment(LUKS_PASSWORD="disk", USER_PASSWORD="user").setting_values()
 
-
-class TestEnvVariableNames:
-    def test_every_binding_variable_is_an_envvar_member(self):
-        # the single source of truth for names is the enum
-        assert EnvVariable.TARGET_DISK == "TARGET_DISK"
-        assert EnvVariable.SECRETS_KEY == "ARCH_INSTALLER_SECRETS_KEY"
+        assert values["credentials.luks_password"] == "disk"
+        assert values["credentials.user_password"] == "user"
 
 
-class TestUnlockSecrets:
-    def test_decrypts_both_passwords_into_credentials(self):
-        key = "k"
-        config = build_config(
-            secrets=EncryptedSecretsConfig(
-                luks_password_encrypted=encrypt_secret("disk-pw", key),
-                user_password_encrypted=encrypt_secret("user-pw", key),
-            ),
-            credentials=Credentials(),
-        )
-        unlocked = unlock_secrets(config, key)
-        assert unlocked.credentials.luks_password == "disk-pw"
-        assert unlocked.credentials.user_password == "user-pw"
+class TestEnvironmentSettingTable:
+    def test_every_variable_names_a_setting_the_model_declares(self):
+        known_paths = set(config_file_setting_values(read_config_file(UNIT_CONFIG_PATH)))
+        known_paths |= set(CREDENTIAL_PATHS)
+
+        unknown = [
+            setting.setting_path
+            for setting in ENVIRONMENT_SETTINGS
+            if setting.setting_path not in known_paths
+        ]
+
+        assert unknown == []
+
+    def test_setting_paths_lead_back_to_their_variable(self):
+        assert variable_for_setting("storage.target_disk") == EnvVariable.TARGET_DISK
+        assert variable_for_setting("storage.luks.cipher") is None
+
+
+class TestSwitches:
+    def test_unset_switch_is_off(self):
+        assert not environment().switch_is_on(EnvVariable.NON_INTERACTIVE)
+
+    def test_switch_reads_true_words(self):
+        assert environment(NON_INTERACTIVE="yes").switch_is_on(EnvVariable.NON_INTERACTIVE)

@@ -6,12 +6,23 @@ Run after booting into the installed system:
 sudo verify-install
 ```
 
+`make verify` runs the same script with `--fix --verbose`.
+
 ## Options
 
-| Option      | Description                         |
-| ----------- | ----------------------------------- |
-| `--fix`     | Attempt to automatically fix issues |
-| `--verbose` | Show detailed output for all checks |
+| Option                  | Description                                          |
+| ----------------------- | ---------------------------------------------------- |
+| `--fix`                 | Attempt to automatically fix issues                  |
+| `--verbose`             | Show detailed output for all checks                  |
+| `--expected-state FILE` | Read the expectations from FILE instead of the default |
+
+## What It Compares Against
+
+At the end of an installation the installer writes `/etc/dali/expected-state.env`: the values the installed system should have (hostname, timezone, locale, keymap, user, swap, kernel packages, display managers, snapper, firewall, GPU), rendered from the final configuration as shell assignments, without any secrets. `verify-install` sources that file, so it needs no YAML parser on the target.
+
+Because the script runs as root and sources the file, it refuses a file not owned by root or writable by anyone else. Without the file it still runs every check that needs no expectation, and reports a warning that the configuration-dependent checks were skipped.
+
+The maximal QEMU test runs `verify-install` after rebooting into the installed system and requires zero failures.
 
 ## What It Checks
 

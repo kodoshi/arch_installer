@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 
 from tests.qemu.test_installation import QEMU_DATA_DIRECTORY, run_checked, setup_vm_for_install
-from tests.qemu.tmux_driver import TmuxScreenInput, TmuxSession
+from tests.qemu.tmux_driver import INSTALL_TMUX_IF_MISSING, TmuxScreenInput, TmuxSession
 from tests.qemu.vm import QemuVm
 
 # inherited values come from maximal_config.yaml (no encrypted passwords, so they are
@@ -31,7 +31,8 @@ TUI_SESSION = (
     TmuxScreenInput("USB Boot", ("Up", "Enter")),  # yes -> no
     TmuxScreenInput("CPU Vendor", ("Up", "Enter")),  # amd -> intel
     TmuxScreenInput("GPU Vendor", ("Up", "Enter")),  # none -> nvidia
-    TmuxScreenInput("NVIDIA Driver", ("Up", "Enter")),  # nvidia-dkms -> nvidia-open
+    # the inherited driver is the vendor default, so nothing is preselected: nouveau -> nvidia-open
+    TmuxScreenInput("NVIDIA Driver", ("Down", "Enter")),
     # all three inherited as selected, untick hyprland
     TmuxScreenInput("Desktop Environments", ("Down", "Down", "Space", "Enter")),
     TmuxScreenInput("Swap Size", ("Down", "Down", "Down", "Enter")),  # 1 GB -> 16 GB
@@ -74,7 +75,7 @@ class TestTuiInteraction:
 
         print("\n=== phase 1: setup VM for TUI test ===")
         setup_vm_for_install(vm, config_path=QEMU_DATA_DIRECTORY / "maximal_config.yaml")
-        run_checked(vm, ["pacman -S --noconfirm tmux"], timeout=120)
+        run_checked(vm, [INSTALL_TMUX_IF_MISSING], timeout=120)
         vm.copy_file_to_vm(Path(__file__).parent / "tui_test_runner.py", "/root/tui_test_runner.py")
 
         print("\n=== phase 2: drive TUI in tmux ===")

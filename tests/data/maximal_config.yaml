@@ -32,6 +32,7 @@ system:
 
 storage:
   target_disk: /dev/vda
+  wipe_method: quick
   efi_size_mb: 2048
 
   luks:
@@ -51,23 +52,31 @@ storage:
     subvolumes:
       - name: '@'
         mountpoint: /
+        nocow: false
       - name: '@home'
         mountpoint: /home
+        nocow: false
       - name: '@home-snapshots'
         mountpoint: /home/.snapshots
+        nocow: false
       - name: '@srv'
         mountpoint: /srv
+        nocow: false
       - name: '@var'
         mountpoint: /var
         nocow: true
       - name: '@var-log'
         mountpoint: /var/log
+        nocow: false
       - name: '@cache-pacman-pkgs'
         mountpoint: /var/cache/pacman/pkg
+        nocow: false
       - name: '@var-tmp'
         mountpoint: /var/tmp
+        nocow: false
       - name: '@snapshots'
         mountpoint: /.snapshots
+        nocow: false
       - name: '@swap'
         mountpoint: /.swap
         nocow: true
@@ -145,6 +154,9 @@ boot:
     - sd-encrypt
     - filesystems
     - fsck
+
+  # kernel packages to install from the list above; empty installs all of them
+  selected_kernels: []
 
   enable_snapshot_boot: true
 
@@ -234,6 +246,15 @@ packages:
   display_manager:
     - sddm
 
+  # the desktops to install; each needs packages under desktops above
+  selected_desktops:
+    - kde
+    - gnome
+    - hyprland
+
+  # package names restored from a USB backup's package catalog
+  cataloged: []
+
 gpu:
   vendor: none
   driver: ''
@@ -274,6 +295,10 @@ snapper:
 
   root:
     subvolume: /
+    snapshots_subvolume: '@snapshots'
+    snapshots_path: /.snapshots
+    number_limit: 10
+    number_limit_important: 5
     timeline: true
     cleanup: true
     retention:
@@ -285,6 +310,10 @@ snapper:
 
   home:
     subvolume: /home
+    snapshots_subvolume: '@home-snapshots'
+    snapshots_path: /home/.snapshots
+    number_limit: 5
+    number_limit_important: 3
     timeline: true
     cleanup: true
     retention:
@@ -296,6 +325,9 @@ snapper:
 
   snap_pac: true
 
+  # how many of the newest snapshots get a bootable UKI
+  bootable_snapshot_count: 5
+
 firewall:
   enabled: true
   default_incoming: deny
@@ -306,6 +338,9 @@ firewall:
   ssh:
     enabled: false
     port: 22
+    allowed_from: ''
+
+  allow_rules: []
 
 docker:
   enabled: true
@@ -318,6 +353,18 @@ notifications:
 
 sync:
   backup_items: []
+  backup_categories:
+    - dotfiles
+    - keepass
+    - browser
+    - system
+
+# Migration from an existing Arch installation (also ENABLE_MIGRATION)
+migration:
+  enabled: false
+  preserve_home: true
+  preserve_secure_boot_keys: true
+  additional_paths: []
 
 usb_boot:
   enabled: true

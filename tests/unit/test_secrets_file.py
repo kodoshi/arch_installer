@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 
 from arch_installer.cli import decrypt_secrets, encrypt_secrets
-from arch_installer.config.loader import load_config
+from arch_installer.config.config_file import config_file_setting_values, read_config_file
 from arch_installer.config.models import EncryptedSecretsConfig
 from arch_installer.config.secrets_file import write_encrypted_secrets
 from arch_installer.core.log import PACKAGE_LOGGER_NAME
@@ -21,6 +21,14 @@ CONFIG_WITH_SECRETS = BASE_CONFIG + (
 )
 CONFIG_WITH_EMPTY_SECTION = BASE_CONFIG + "\nsecrets:\n"
 CONFIG_WITHOUT_SECTION = BASE_CONFIG
+
+
+def stored_secrets(path: Path) -> EncryptedSecretsConfig:
+    values = config_file_setting_values(read_config_file(path))
+    return EncryptedSecretsConfig(
+        luks_password_encrypted=values["secrets.luks_password_encrypted"],
+        user_password_encrypted=values["secrets.user_password_encrypted"],
+    )
 
 
 @pytest.fixture
@@ -42,21 +50,24 @@ class TestWriteEncryptedSecrets:
         text = path.read_text()
         assert "# filled by make encrypt-secrets" in text
         assert text.startswith(BASE_CONFIG)
-        assert load_config(path).secrets == EncryptedSecretsConfig("new-luks", "new-user")
+        assert stored_secrets(path) == EncryptedSecretsConfig("new-luks", "new-user")
 
     def test_empty_value_keeps_what_the_file_already_has(self, config_file):
         path = config_file(CONFIG_WITH_SECRETS)
 
-        write_encrypted_secrets(path, EncryptedSecretsConfig(luks_password_encrypted="new-luks"))
+        write_encrypted_secrets(
+            path,
+            EncryptedSecretsConfig(luks_password_encrypted="new-luks", user_password_encrypted=""),
+        )
 
-        assert load_config(path).secrets == EncryptedSecretsConfig("new-luks", "old-user")
+        assert stored_secrets(path) == EncryptedSecretsConfig("new-luks", "old-user")
 
     def test_values_are_added_to_an_empty_secrets_section(self, config_file):
         path = config_file(CONFIG_WITH_EMPTY_SECTION)
 
         write_encrypted_secrets(path, EncryptedSecretsConfig("luks", "user"))
 
-        assert load_config(path).secrets == EncryptedSecretsConfig("luks", "user")
+        assert stored_secrets(path) == EncryptedSecretsConfig("luks", "user")
         assert path.read_text().startswith(BASE_CONFIG)
 
     def test_secrets_section_is_appended_when_missing(self, config_file):
@@ -64,7 +75,10 @@ class TestWriteEncryptedSecrets:
 
         write_encrypted_secrets(path, EncryptedSecretsConfig("luks", ""))
 
-        assert load_config(path).secrets.luks_password_encrypted == "luks"
+        assert (
+            config_file_setting_values(read_config_file(path))["secrets.luks_password_encrypted"]
+            == "luks"
+        )
 
     def test_missing_config_file_is_reported(self, tmp_path):
         with pytest.raises(ConfigurationError, match="not found"):
@@ -168,7 +182,8 @@ class TestSecretsCommands:
         assert encrypt_secrets() == 0
 
         assert len(scripted.prompts) == 5
-        assert load_config(path).secrets.luks_password_encrypted
+        stored = config_file_setting_values(read_config_file(path))
+        assert stored["secrets.luks_password_encrypted"].startswith("dali-v2$argon2id$")
 
     def test_kept_password_encrypted_with_another_key_is_refused(
         self, secrets_environment, terminal

@@ -1,6 +1,6 @@
 # Firewall
 
-The installer configures UFW (Uncomplicated Firewall) with security-hardened defaults.
+The installer configures UFW (Uncomplicated Firewall) with the security-hardened settings of the shipped config.yaml.
 
 ## Configuration
 

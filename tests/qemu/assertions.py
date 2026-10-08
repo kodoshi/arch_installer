@@ -5,9 +5,13 @@ an arch linux installation including btrfs structure, secure boot,
 UKI generation, system configuration, and services.
 """
 
+import re
 from dataclasses import dataclass
 
 from tests.qemu.vm import QemuVm
+
+# the colour codes verify-install wraps its labels in
+ANSI_COLOUR = re.compile(r"\x1b\[[0-9;]*m")
 
 
 @dataclass(frozen=True)
@@ -510,6 +514,26 @@ class InstallationAssertions:
         code, _, _ = self._run_command(f"test -f {final_config_path}")
         return self._assert(
             "final_config_written", code == 0, f"expected {final_config_path} to exist"
+        )
+
+    def assert_verify_install_finds_no_failures(self, expected_hostname: str) -> AssertionResult:
+        # the installed verify-install, against the expectations the installer wrote; a
+        # missing expectations file would only warn, so reading it is checked as well
+        exit_code, stdout, stderr = self._run_command("verify-install --verbose", timeout=300)
+        failures = [line.strip() for line in stdout.splitlines() if "✗" in line]
+        plain_lines = [ANSI_COLOUR.sub("", line).strip() for line in stdout.splitlines()]
+        summary = [
+            line for line in plain_lines if line.startswith(("Passed:", "Failed:", "Warnings:"))
+        ]
+        print(f"    verify-install summary: {', '.join(summary)}")
+        used_expectations = "Using expectations from /etc/dali/expected-state.env" in stdout
+        compared_hostname = f"Hostname: {expected_hostname}" in stdout
+        return self._assert(
+            "verify_install_passes",
+            exit_code == 0 and not failures and used_expectations and compared_hostname,
+            f"verify-install exited {exit_code}, failures {failures}, "
+            f"read expectations: {used_expectations}, compared hostname: {compared_hostname}",
+            stdout + stderr,
         )
 
     def assert_mkinitcpio_hooks(

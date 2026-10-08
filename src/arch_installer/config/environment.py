@@ -1,22 +1,23 @@
-"""environment variables: their names, their parsing, and the settings they override.
+"""environment variables: their names, how their text is read, and which setting each one
+provides.
 
-the installer config is assembled in this order, later wins:
-  1. defaults (models.py)
-  2. config.yaml, with its encrypted passwords unlocked by the secrets key
-  3. environment variables (Environment.override)
-  4. TUI answers, which show the values from 1-3 as inherited
+a variable that is set provides its setting's value; an unset variable provides nothing.
+how that value ranks against config.yaml and the TUI is decided in value_precedence.py.
 """
 
-from collections.abc import Mapping
-from dataclasses import replace
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass
 from enum import StrEnum
+from typing import Any
 
 from arch_installer.config.models import (
     BackupCategory,
+    CpuVendor,
     Desktop,
-    InstallerConfig,
+    GpuDriver,
+    GpuVendor,
+    WipeMethod,
 )
-from arch_installer.core.secrets import decrypt_secret
 from arch_installer.errors import ConfigurationError
 
 TRUE_WORDS = ("true", "1", "yes")
@@ -53,156 +54,129 @@ class EnvVariable(StrEnum):
     SELECTED_DESKTOPS = "SELECTED_DESKTOPS"
 
 
-class Environment:
-    def __init__(self, variables: Mapping[str, str]) -> None:
-        self._variables = variables
-
-    def is_set(self, variable: EnvVariable) -> bool:
-        return bool(self._raw(variable))
-
-    def text(self, variable: EnvVariable, fallback: str = "") -> str:
-        return self._raw(variable) or fallback
-
-    def flag(self, variable: EnvVariable, fallback: bool = False) -> bool:
-        raw = self._raw(variable).lower()
-        if not raw:
-            return fallback
-        if raw in TRUE_WORDS:
-            return True
-        if raw in FALSE_WORDS:
-            return False
-        raise ConfigurationError(f"{variable} must be true or false, got {raw!r}")
-
-    def number(self, variable: EnvVariable, fallback: int) -> int:
-        raw = self._raw(variable)
-        if not raw:
-            return fallback
-        if not raw.isdigit():
-            raise ConfigurationError(f"{variable} must be a whole number, got {raw!r}")
-        return int(raw)
-
-    def choice[ChoiceT: StrEnum](self, variable: EnvVariable, fallback: ChoiceT) -> ChoiceT:
-        raw = self._raw(variable)
-        if not raw:
-            return fallback
-        return self._parse_choice(variable, type(fallback), raw)
-
-    def choices[ChoiceT: StrEnum](
-        self,
-        variable: EnvVariable,
-        choice_type: type[ChoiceT],
-        fallback: tuple[ChoiceT, ...] | None,
-    ) -> tuple[ChoiceT, ...] | None:
-        raw = self._raw(variable)
-        if not raw:
-            return fallback
-        return tuple(self._parse_choice(variable, choice_type, item) for item in _split_list(raw))
-
-    def names(self, variable: EnvVariable, fallback: tuple[str, ...]) -> tuple[str, ...]:
-        raw = self._raw(variable)
-        return _split_list(raw) if raw else fallback
-
-    def override(self, config: InstallerConfig) -> InstallerConfig:
-        system, storage, swap = config.system, config.storage, config.storage.swap
-        boot, packages, gpu = config.boot, config.packages, config.gpu
-        usb_boot, credentials = config.usb_boot, config.credentials
-        return replace(
-            config,
-            system=replace(
-                system, cpu_vendor=self.choice(EnvVariable.CPU_VENDOR, system.cpu_vendor)
-            ),
-            storage=replace(
-                storage,
-                target_disk=self.text(EnvVariable.TARGET_DISK, storage.target_disk),
-                wipe_method=self.choice(EnvVariable.WIPE_METHOD, storage.wipe_method),
-                swap=replace(
-                    swap,
-                    enabled=not self.flag(EnvVariable.SKIP_SWAP, not swap.enabled),
-                    size_mb=self.number(EnvVariable.SWAP_SIZE_MB, swap.size_mb),
-                    hibernation=self.flag(EnvVariable.ENABLE_HIBERNATION, swap.hibernation),
-                ),
-            ),
-            boot=replace(
-                boot,
-                selected_kernels=self.names(EnvVariable.SELECTED_KERNELS, boot.selected_kernels),
-                enable_snapshot_boot=self.flag(
-                    EnvVariable.ENABLE_SNAPSHOT_BOOT, boot.enable_snapshot_boot
-                ),
-            ),
-            packages=replace(
-                packages,
-                selected_desktops=self.choices(
-                    EnvVariable.SELECTED_DESKTOPS, Desktop, packages.selected_desktops
-                ),
-            ),
-            gpu=replace(
-                gpu,
-                vendor=self.choice(EnvVariable.GPU_VENDOR, gpu.vendor),
-                driver=self.choice(EnvVariable.GPU_DRIVER, gpu.driver),
-            ),
-            firewall=replace(
-                config.firewall,
-                enabled=self.flag(EnvVariable.ENABLE_FIREWALL, config.firewall.enabled),
-            ),
-            docker=replace(
-                config.docker, enabled=self.flag(EnvVariable.ENABLE_DOCKER, config.docker.enabled)
-            ),
-            notifications=replace(
-                config.notifications,
-                enabled=self.flag(EnvVariable.ENABLE_NOTIFICATIONS, config.notifications.enabled),
-            ),
-            migration=replace(
-                config.migration,
-                enabled=self.flag(EnvVariable.ENABLE_MIGRATION, config.migration.enabled),
-            ),
-            usb_boot=replace(
-                usb_boot,
-                enabled=self.flag(EnvVariable.ENABLE_USB_BOOT, usb_boot.enabled),
-                device=self.text(EnvVariable.USB_BOOT_DEVICE, usb_boot.device),
-                iso_path=self.text(EnvVariable.ISO_PATH, usb_boot.iso_path),
-            ),
-            sync=replace(
-                config.sync,
-                backup_categories=self.choices(
-                    EnvVariable.BACKUP_CATEGORIES, BackupCategory, config.sync.backup_categories
-                ),
-            ),
-            credentials=replace(
-                credentials,
-                luks_password=self.text(EnvVariable.LUKS_PASSWORD, credentials.luks_password),
-                user_password=self.text(EnvVariable.USER_PASSWORD, credentials.user_password),
-                source_luks_password=self.text(
-                    EnvVariable.SOURCE_LUKS_PASSWORD, credentials.source_luks_password
-                ),
-            ),
-        )
-
-    def _raw(self, variable: EnvVariable) -> str:
-        return self._variables.get(variable, "").strip()
-
-    @staticmethod
-    def _parse_choice[ChoiceT: StrEnum](
-        variable: EnvVariable, choice_type: type[ChoiceT], raw: str
-    ) -> ChoiceT:
-        try:
-            return choice_type(raw.lower())
-        except ValueError:
-            allowed = ", ".join(member.value for member in choice_type if member.value)
-            raise ConfigurationError(f"{variable}={raw!r} is not one of: {allowed}") from None
-
-
 def _split_list(raw: str) -> tuple[str, ...]:
     return tuple(item.strip() for item in raw.split(",") if item.strip())
 
 
-def unlock_secrets(config: InstallerConfig, secrets_key: str) -> InstallerConfig:
-    secrets, credentials = config.secrets, config.credentials
-    if secrets.luks_password_encrypted:
-        credentials = replace(
-            credentials, luks_password=decrypt_secret(secrets.luks_password_encrypted, secrets_key)
-        )
-    if secrets.user_password_encrypted:
-        credentials = replace(
-            credentials, user_password=decrypt_secret(secrets.user_password_encrypted, secrets_key)
-        )
-    return replace(config, credentials=credentials)
+def read_text(variable: EnvVariable, raw: str) -> str:
+    return raw
+
+
+def read_flag(variable: EnvVariable, raw: str) -> bool:
+    if raw.lower() in TRUE_WORDS:
+        return True
+    if raw.lower() in FALSE_WORDS:
+        return False
+    raise ConfigurationError(f"{variable} must be true or false, got {raw!r}")
+
+
+def read_inverted_flag(variable: EnvVariable, raw: str) -> bool:
+    return not read_flag(variable, raw)
+
+
+def read_number(variable: EnvVariable, raw: str) -> int:
+    if not raw.isdigit():
+        raise ConfigurationError(f"{variable} must be a whole number, got {raw!r}")
+    return int(raw)
+
+
+def read_names(variable: EnvVariable, raw: str) -> tuple[str, ...]:
+    return _split_list(raw)
+
+
+def _parse_choice[ChoiceT: StrEnum](
+    variable: EnvVariable, choice_type: type[ChoiceT], raw: str
+) -> ChoiceT:
+    try:
+        return choice_type(raw.lower())
+    except ValueError:
+        allowed = ", ".join(member.value for member in choice_type if member.value)
+        raise ConfigurationError(f"{variable}={raw!r} is not one of: {allowed}") from None
+
+
+def read_choice(choice_type: type[StrEnum]) -> Callable[[EnvVariable, str], StrEnum]:
+    return lambda variable, raw: _parse_choice(variable, choice_type, raw)
+
+
+def read_choices(
+    choice_type: type[StrEnum],
+) -> Callable[[EnvVariable, str], tuple[StrEnum, ...]]:
+    return lambda variable, raw: tuple(
+        _parse_choice(variable, choice_type, item) for item in _split_list(raw)
+    )
+
+
+@dataclass(frozen=True)
+class EnvironmentSetting:
+    variable: EnvVariable
+    setting_path: str
+    read: Callable[[EnvVariable, str], Any]
+
+
+# every setting an environment variable can provide, and how the variable's text is read
+ENVIRONMENT_SETTINGS = (
+    EnvironmentSetting(EnvVariable.LUKS_PASSWORD, "credentials.luks_password", read_text),
+    EnvironmentSetting(EnvVariable.USER_PASSWORD, "credentials.user_password", read_text),
+    EnvironmentSetting(
+        EnvVariable.SOURCE_LUKS_PASSWORD, "credentials.source_luks_password", read_text
+    ),
+    EnvironmentSetting(EnvVariable.TARGET_DISK, "storage.target_disk", read_text),
+    EnvironmentSetting(EnvVariable.WIPE_METHOD, "storage.wipe_method", read_choice(WipeMethod)),
+    EnvironmentSetting(EnvVariable.SWAP_SIZE_MB, "storage.swap.size_mb", read_number),
+    EnvironmentSetting(EnvVariable.SKIP_SWAP, "storage.swap.enabled", read_inverted_flag),
+    EnvironmentSetting(EnvVariable.ENABLE_HIBERNATION, "storage.swap.hibernation", read_flag),
+    EnvironmentSetting(EnvVariable.ENABLE_SNAPSHOT_BOOT, "boot.enable_snapshot_boot", read_flag),
+    EnvironmentSetting(EnvVariable.SELECTED_KERNELS, "boot.selected_kernels", read_names),
+    EnvironmentSetting(
+        EnvVariable.SELECTED_DESKTOPS, "packages.selected_desktops", read_choices(Desktop)
+    ),
+    EnvironmentSetting(EnvVariable.CPU_VENDOR, "system.cpu_vendor", read_choice(CpuVendor)),
+    EnvironmentSetting(EnvVariable.GPU_VENDOR, "gpu.vendor", read_choice(GpuVendor)),
+    EnvironmentSetting(EnvVariable.GPU_DRIVER, "gpu.driver", read_choice(GpuDriver)),
+    EnvironmentSetting(EnvVariable.ENABLE_FIREWALL, "firewall.enabled", read_flag),
+    EnvironmentSetting(EnvVariable.ENABLE_DOCKER, "docker.enabled", read_flag),
+    EnvironmentSetting(EnvVariable.ENABLE_NOTIFICATIONS, "notifications.enabled", read_flag),
+    EnvironmentSetting(EnvVariable.ENABLE_MIGRATION, "migration.enabled", read_flag),
+    EnvironmentSetting(EnvVariable.ENABLE_USB_BOOT, "usb_boot.enabled", read_flag),
+    EnvironmentSetting(EnvVariable.USB_BOOT_DEVICE, "usb_boot.device", read_text),
+    EnvironmentSetting(EnvVariable.ISO_PATH, "usb_boot.iso_path", read_text),
+    EnvironmentSetting(
+        EnvVariable.BACKUP_CATEGORIES, "sync.backup_categories", read_choices(BackupCategory)
+    ),
+)
+
+
+def variable_for_setting(setting_path: str) -> EnvVariable | None:
+    return next(
+        (
+            setting.variable
+            for setting in ENVIRONMENT_SETTINGS
+            if setting.setting_path == setting_path
+        ),
+        None,
+    )
+
+
+class Environment:
+    def __init__(self, variables: Mapping[str, str]) -> None:
+        self._variables = variables
+
+    def _raw(self, variable: EnvVariable) -> str:
+        return self._variables.get(variable, "").strip()
+
+    def is_set(self, variable: EnvVariable) -> bool:
+        return bool(self._raw(variable))
+
+    # the variables that are not settings: paths, keys and switches of the tools
+    def text(self, variable: EnvVariable) -> str:
+        return self._raw(variable)
+
+    def switch_is_on(self, variable: EnvVariable) -> bool:
+        return self.is_set(variable) and read_flag(variable, self._raw(variable))
+
+    def setting_values(self) -> dict[str, Any]:
+        return {
+            setting.setting_path: setting.read(setting.variable, self._raw(setting.variable))
+            for setting in ENVIRONMENT_SETTINGS
+            if self.is_set(setting.variable)
+        }

@@ -1,6 +1,6 @@
 from dataclasses import replace
 
-from arch_installer.config.models import GpuConfig, GpuDriver, GpuVendor
+from arch_installer.config.models import GpuDriver, GpuVendor
 from arch_installer.executors.base import Executor
 from arch_installer.executors.docker import DockerExecutor
 from arch_installer.executors.firewall import FirewallExecutor
@@ -48,9 +48,11 @@ class TestPipelineSelection:
         assert UsbBootExecutor in executors
 
     def test_nvidia_driver_runs_only_for_a_proprietary_driver(self):
-        nouveau = build_config(gpu=GpuConfig(vendor=GpuVendor.NVIDIA, driver=GpuDriver.NOUVEAU))
+        nouveau = build_config(
+            gpu=replace(build_config().gpu, vendor=GpuVendor.NVIDIA, driver=GpuDriver.NOUVEAU)
+        )
         proprietary = build_config(
-            gpu=GpuConfig(vendor=GpuVendor.NVIDIA, driver=GpuDriver.NVIDIA_DKMS)
+            gpu=replace(build_config().gpu, vendor=GpuVendor.NVIDIA, driver=GpuDriver.NVIDIA_DKMS)
         )
         assert NvidiaDriverExecutor not in enabled_executors(nouveau)
         assert NvidiaDriverExecutor in enabled_executors(proprietary)

@@ -9,7 +9,7 @@ arch_installer/
 ├── src/arch_installer/
 │   ├── cli.py                   # entry points and config resolution
 │   ├── installer.py             # orchestrator and section pipeline
-│   ├── config/                  # config model, YAML loader, environment variables
+│   ├── config/                  # config model, value sources and their precedence
 │   ├── core/                    # command runner, logging, secrets crypto
 │   ├── executors/               # one executor per config section
 │   └── tui/                     # curses interactive setup
@@ -68,16 +68,17 @@ python -m arch_installer.cli
 
 ![Installer Flow](diagrams/installer-flow.png)
 
-#### Phase 1: Configuration Resolution
+#### Phase 1: Configuration Assembly
 
-`cli.py` builds one `InstallerConfig` in a fixed order, each step overriding the previous one:
+`cli.assemble_installer_config()` reads it top to bottom:
 
-1. defaults: every field default in `config/models.py`
-2. `config/config.yaml`, with its encrypted passwords unlocked by `ARCH_INSTALLER_SECRETS_KEY`
-3. environment variables (`Environment.override` in `config/environment.py`)
-4. the TUI, unless `NON_INTERACTIVE=true`: every screen starts on the value inherited from steps 1-3, Enter keeps it and any other choice overrides it
+1. `Environment.setting_values()`: the settings provided by environment variables that are set (`ENVIRONMENT_SETTINGS` in `config/environment.py` maps each variable to its setting path)
+2. `config_file_setting_values()`: `config.yaml` flattened into setting paths such as `storage.swap.size_mb`, with its encrypted passwords unlocked by `ARCH_INSTALLER_SECRETS_KEY` (`config/config_file.py`)
+3. `inherit_setting_values()`: for each setting, the first source in `INHERITANCE_ORDER = (ENVIRONMENT, CONFIG_FILE)` that has a value gives the inherited value, remembered with its source (`config/value_precedence.py`)
+4. interactive only: the TUI shows every inherited value with its source and returns what the user chose; `apply_tui_choices()` lets those choices win
+5. `build_installer_config()`: the values become the frozen `InstallerConfig`; every field must have a value, and all settings no source provided are reported together (`config/installer_config_builder.py`)
 
-The result is validated (`validate_for_install`) and is immutable from then on.
+The result is validated (`validate_for_install`) and is immutable from then on. Nothing comes from code: the model has no defaults to fall back on.
 
 #### Phase 2: Orchestration
 
@@ -92,24 +93,27 @@ Each executor uses a `CommandRunner` to execute shell commands. This abstraction
 
 ### One Config Model
 
-There is a single frozen dataclass tree, `InstallerConfig`. Answers from the environment or the TUI produce a new instance via `dataclasses.replace`, never a parallel "runtime" object, so every executor and the generated `final_config.yaml` see the values that were actually installed. Passwords live in `InstallerConfig.credentials` and are left out of `final_config.yaml` by `exportable_config()`.
+There is a single frozen dataclass tree, `InstallerConfig`, and it has no field defaults (the one exception, `UsbBootConfig`, keeps them only for a unit test and the builder still requires every field). Values are addressed by their dotted path in the model while they are being assembled, and become the model once, at the end, so every executor and the generated `final_config.yaml` see the values that were actually installed. Passwords live in `InstallerConfig.credentials` and are left out of `final_config.yaml` by `exportable_config()`.
 
 ## File Layout
 
 ```
 src/arch_installer/
-├── cli.py                      # entry points: install, usb-init, usb-backup, secrets helpers
+├── cli.py                      # entry points and the config assembly
 ├── installer.py                # Installer orchestrator and the PIPELINE of sections
+├── expected_state.py           # the values verify-install checks the installed system against
 ├── errors.py                   # custom exceptions
 ├── config/
-│   ├── models.py               # InstallerConfig and its sections (frozen), enums, defaults
-│   ├── loader.py               # YAML -> InstallerConfig, driven by the model's type hints
-│   ├── environment.py          # EnvVariable names, typed readers, override(), unlock_secrets()
+│   ├── models.py               # InstallerConfig and its sections (frozen, no defaults), enums
+│   ├── value_precedence.py     # where each value comes from and which source wins
+│   ├── environment.py          # EnvVariable names and the variable -> setting table
+│   ├── config_file.py          # config.yaml -> setting values, encrypted passwords unlocked
+│   ├── installer_config_builder.py  # setting values -> InstallerConfig, missing ones reported
 │   └── secrets_file.py         # writes encrypted passwords into config.yaml, keeping comments
 ├── core/
 │   ├── command.py              # CommandRunner interface, SystemCommandRunner
 │   ├── log.py                  # stdlib logging setup (stdout progress, stderr problems)
-│   └── secrets.py              # AES-256-GCM encryption of stored passwords
+│   └── secrets.py              # Argon2id + AES-256-GCM encryption of stored passwords
 ├── executors/
 │   ├── base.py                 # Executor base class, file/mount helpers
 │   ├── storage.py              # disk wipe, partitions, LUKS, BTRFS, swap
@@ -164,12 +168,13 @@ make diagrams
 
 ## Adding a New Section
 
-1. Add the config section to `config/models.py` (a frozen dataclass with defaults) and a field for it on `InstallerConfig`
-2. Create `executors/new_section.py` with an `Executor` subclass implementing `execute()`
-3. Add a `Section(label, enabled, executor)` to `PIPELINE` in `installer.py`, in the right order
-4. If it needs an environment override, add the name to `EnvVariable` and the override to `Environment.override`
-5. Write tests in `tests/unit/test_new_section.py`
-6. Add assertions in the main QEMU tests in `tests/qemu/test_installation.py` (if applicable)
+1. Add the config section to `config/models.py` (a frozen dataclass, no defaults) and a field for it on `InstallerConfig`
+2. Add the section with every key to `config/config.yaml` and the configs in `tests/data/` (the builder refuses a config that lacks any of them)
+3. Create `executors/new_section.py` with an `Executor` subclass implementing `execute()`
+4. Add a `Section(label, enabled, executor)` to `PIPELINE` in `installer.py`, in the right order
+5. If an environment variable should provide a setting, add the name to `EnvVariable` and a row to `ENVIRONMENT_SETTINGS`; if the TUI should ask for it, add it to `AskedSetting` in `tui/app.py`
+6. Write tests in `tests/unit/test_new_section.py`
+7. Add assertions in the main QEMU tests in `tests/qemu/test_installation.py` (if applicable)
 
 ## Idempotent Design
 

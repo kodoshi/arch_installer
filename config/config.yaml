@@ -71,23 +71,31 @@ storage:
     subvolumes:
       - name: '@'
         mountpoint: /
+        nocow: false
       - name: '@home'
         mountpoint: /home
+        nocow: false
       - name: '@home-snapshots'
         mountpoint: /home/.snapshots
+        nocow: false
       - name: '@srv'
         mountpoint: /srv
+        nocow: false
       - name: '@var'
         mountpoint: /var
         nocow: true
       - name: '@var-log'
         mountpoint: /var/log
+        nocow: false
       - name: '@cache-pacman-pkgs'
         mountpoint: /var/cache/pacman/pkg
+        nocow: false
       - name: '@var-tmp'
         mountpoint: /var/tmp
+        nocow: false
       - name: '@snapshots'
         mountpoint: /.snapshots
+        nocow: false
       - name: '@swap'
         mountpoint: /.swap
         nocow: true
@@ -179,6 +187,9 @@ boot:
     - sd-encrypt
     - filesystems
     - fsck
+
+  # kernel packages to install from the list above; empty installs all of them
+  selected_kernels: []
 
   # enable bootable snapshots (creates UKIs for each btrfs snapshot)
   # note: requires snapper enabled with root config for functional snapshots
@@ -287,6 +298,15 @@ packages:
   display_manager:
     - sddm
 
+  # the desktops to install; each needs packages under desktops above
+  selected_desktops:
+    - kde
+    - gnome
+    - hyprland
+
+  # package names restored from a USB backup's package catalog
+  cataloged: []
+
 # GPU Configuration
 gpu:
   # GPU vendor: nvidia, amd, intel, none
@@ -340,6 +360,10 @@ snapper:
   # root filesystem snapshots
   root:
     subvolume: /
+    snapshots_subvolume: '@snapshots'
+    snapshots_path: /.snapshots
+    number_limit: 10
+    number_limit_important: 5
     timeline: true
     cleanup: true
     # retention: hourly, daily, weekly, monthly, yearly
@@ -353,6 +377,10 @@ snapper:
   # Home snapshots
   home:
     subvolume: /home
+    snapshots_subvolume: '@home-snapshots'
+    snapshots_path: /home/.snapshots
+    number_limit: 5
+    number_limit_important: 3
     timeline: true
     cleanup: true
     retention:
@@ -364,6 +392,9 @@ snapper:
 
   # snap-pac integration (pre/post pacman snapshots)
   snap_pac: true
+
+  # how many of the newest snapshots get a bootable UKI
+  bootable_snapshot_count: 5
 
 # Firewall Configuration (UFW)
 firewall:
@@ -384,10 +415,12 @@ firewall:
   ssh:
     enabled: false
     port: 22
-    # allowed_from: 192.168.1.0/24  # optional: restrict SSH to specific subnet
+    # restrict SSH to one subnet, e.g. 192.168.1.0/24; empty allows any
+    allowed_from: ''
 
   # additional allow rules (port/protocol)
-  # allow_rules:
+  allow_rules: []
+  # examples:
   #   - port: 80
   #     protocol: tcp
   #   - port: 443
@@ -433,6 +466,13 @@ sync:
   #     source_path: ~/.gnupg
   #     description: GPG keyring
 
+# Migration from an existing Arch installation (also ENABLE_MIGRATION)
+migration:
+  enabled: false
+  preserve_home: true
+  preserve_secure_boot_keys: true
+  additional_paths: []
+
 # USB Boot Drive for Plausible Deniability Encryption (PDE)
 # When enabled, EFI bootloader and LUKS headers are stored on a separate USB drive.
 # Without the USB plugged in, the main disk appears as random data and Windows boots.
@@ -462,9 +502,9 @@ usb_boot:
   backup_partition_size_mb: 0
 
 # Encrypted Secrets for both Non-Interactive and Interactive Mode
-# Generate encrypted passwords using:
-#   make encrypt-secrets ARCH_INSTALLER_SECRETS_KEY=your-key LUKS_PASSWORD=diskpass USER_PASSWORD=userpass
-# Then set ARCH_INSTALLER_SECRETS_KEY=your-key at runtime to decrypt, or input it during prompts.
+# Generate encrypted passwords with `make encrypt-secrets` (it asks for the key and the
+# passwords without echo). At install time the key comes from ARCH_INSTALLER_SECRETS_KEY
+# or is asked for.
 secrets:
   luks_password_encrypted: '1lt6oXIiEegLBC6vR4y0lE346Qt7DNBw2cbQNTYQ069j14ni'
   user_password_encrypted: 'DUa8DDNl6Zg1WZEArc5qPPH0Umb7BHmJw5AvzsyH2dPkw1kX'

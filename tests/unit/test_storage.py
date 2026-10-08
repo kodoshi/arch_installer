@@ -1,6 +1,6 @@
 from dataclasses import replace
 
-from arch_installer.config.models import StorageConfig, WipeMethod
+from arch_installer.config.models import WipeMethod
 from arch_installer.executors.storage import StorageExecutor
 from tests.unit.conftest import build_config
 
@@ -55,7 +55,9 @@ class TestStorageExecutor:
     def test_migration_forces_a_quick_wipe_over_the_configured_method(self, fake_runner):
         base = build_config()
         config = build_config(
-            storage=StorageConfig(target_disk="/dev/sda", wipe_method=WipeMethod.SECURE),
+            storage=replace(
+                build_config().storage, target_disk="/dev/sda", wipe_method=WipeMethod.SECURE
+            ),
             migration=replace(base.migration, enabled=True),
         )
         StorageExecutor(config, storage_runner(fake_runner)).execute()

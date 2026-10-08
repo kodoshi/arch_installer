@@ -52,7 +52,7 @@ class PackagesExecutor(Executor):
 
     def _desktop_packages(self) -> list[str]:
         packages_config = self._config.packages
-        desktops = packages_config.desktops_to_install
+        desktops = packages_config.selected_desktops
         if not desktops:
             return []
         logger.info("Desktops: %s", ", ".join(desktops))
@@ -120,7 +120,7 @@ class PackagesExecutor(Executor):
         if self._runner.run_as_chroot("pacman -Q openssh", raise_on_nonzero_exit=False).success:
             self._runner.run_as_chroot("systemctl enable sshd.service")
 
-        if self._config.packages.desktops_to_install:
+        if self._config.packages.selected_desktops:
             for display_manager in self._config.packages.display_manager:
                 if self._runner.run_as_chroot(
                     f"pacman -Q {display_manager}", raise_on_nonzero_exit=False

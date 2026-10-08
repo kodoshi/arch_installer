@@ -230,21 +230,27 @@ For interactive testing and debugging, use the manual QEMU test script:
 
 This script launches a QEMU VM with:
 
-- UEFI secure boot in setup mode (keys can be enrolled after install)
+- UEFI Secure Boot in setup mode (the installer enrolls its keys)
 - VNC display for visual interaction
 - SSH access for command execution
+- this working tree copied to `/root/arch_installer`, with its dependencies installed
 
 **Options:**
 
-| Option        | Description                        | Default               |
-| ------------- | ---------------------------------- | --------------------- |
-| `--disk-size` | Disk size in GB                    | 40                    |
-| `--memory`    | RAM size in MB                     | 4096                  |
-| `--work-dir`  | Working directory for VM files     | /tmp/qemu-manual-test |
-| `--vnc-port`  | VNC display port offset            | 50 (VNC port 5950)    |
-| `--ssh-port`  | SSH port forwarding                | 2222                  |
-| `--keep`      | Keep VM files after exit           |                       |
-| `--headless`  | Run without VNC display (SSH only) |                       |
+| Option             | Description                                                       | Default                           |
+| ------------------ | ----------------------------------------------------------------- | --------------------------------- |
+| `--disk-size`      | Disk size in GB                                                   | 40                                |
+| `--memory`         | RAM size in MB                                                    | 4096                              |
+| `--work-dir`       | Working directory for VM files                                    | `~/.cache/arch-installer-qemu/manual` |
+| `--vnc-port`       | VNC display port offset                                           | 50 (VNC port 5950)                |
+| `--ssh-port`       | SSH port forwarding (checked to be free first)                    | 2222                              |
+| `--usb-disk [GB]`  | A USB mass storage drive (`/dev/sda`) for the USB boot drive      | 8                                 |
+| `--no-iso`         | Start the installed system from the kept disks                    |                                   |
+| `--no-copy`        | Do not copy the working tree into the live system                 |                                   |
+| `--keep`           | Keep VM files after exit                                          |                                   |
+| `--headless`       | Run without VNC display (SSH only)                                |                                   |
+
+The internal disk carries a serial number, so it has a `/dev/disk/by-id` name like a real disk: the USB boot drive needs it.
 
 **Example:**
 
@@ -254,6 +260,21 @@ This script launches a QEMU VM with:
 
 # with custom options
 ./tests/qemu/qemu_manual_test.sh /path/to/archlinux.iso --disk-size 60 --memory 8192 --keep
+```
+
+**USB boot drive demo:**
+
+```bash
+# 1. live system with a USB drive; in the VNC console: cd /root/arch_installer && make run
+#    (USB boot drive /dev/sda, recovery ISO /dev/sr0, wipe method secure)
+./tests/qemu/qemu_manual_test.sh --usb-disk --keep
+
+# 2. after the installation: poweroff in the VM, press Enter in the script, then start the
+#    installed system; it boots from the drive and asks for the passphrase on the console
+./tests/qemu/qemu_manual_test.sh --usb-disk --keep --no-iso
+
+# 3. the same disk without the drive: nothing boots
+./tests/qemu/qemu_manual_test.sh --keep --no-iso
 ```
 
 **Access methods:**

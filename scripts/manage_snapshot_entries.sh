@@ -199,9 +199,9 @@ sign_file() {
 }
 
 # function to build snapshot cmdline
-# parameters: snapshot_subvol, mode (ro|rw)
+# parameters: snapshot_subvolume, mode (ro|rw)
 build_snapshot_cmdline() {
-    local snapshot_subvol="$1"
+    local snapshot_subvolume="$1"
     local mode="${2:-rw}"  # Default to read-write
     local base_cmdline=""
 
@@ -282,9 +282,9 @@ build_snapshot_cmdline() {
     # replace rootflags with snapshot subvol (preserve other rootflags options if any)
     if echo "$base_cmdline" | grep -q "rootflags="; then
         # replace subvol= within rootflags, keeping other options
-        base_cmdline=$(echo "$base_cmdline" | sed -E "s|rootflags=([^[:space:]]*)?subvol=[^,[:space:]]*|rootflags=\\1subvol=$snapshot_subvol|")
+        base_cmdline=$(echo "$base_cmdline" | sed -E "s|rootflags=([^[:space:]]*)?subvol=[^,[:space:]]*|rootflags=\\1subvol=$snapshot_subvolume|")
     else
-        base_cmdline="$base_cmdline rootflags=subvol=$snapshot_subvol"
+        base_cmdline="$base_cmdline rootflags=subvol=$snapshot_subvolume"
     fi
 
     # set read-write or read-only based on mode
@@ -302,19 +302,19 @@ build_snapshot_cmdline() {
 
 # function to get snapshot info from snapper
 get_snapshot_info() {
-    local snapshot_num="$1"
-    local info_file="$SNAPSHOTS_DIR/$snapshot_num/info.xml"
+    local snapshot_number="$1"
+    local info_file="$SNAPSHOTS_DIR/$snapshot_number/info.xml"
 
-    local description="Snapshot $snapshot_num"
+    local description="Snapshot $snapshot_number"
     local date="Unknown"
     local type="single"
 
     if [ -f "$info_file" ]; then
-        description=$(grep -oP '(?<=<description>)[^<]*' "$info_file" 2>/dev/null | head -1) || description="Snapshot $snapshot_num"
+        description=$(grep -oP '(?<=<description>)[^<]*' "$info_file" 2>/dev/null | head -1) || description="Snapshot $snapshot_number"
         date=$(grep -oP '(?<=<date>)[^<]*' "$info_file" 2>/dev/null | head -1) || date="Unknown"
         type=$(grep -oP '(?<=<type>)[^<]*' "$info_file" 2>/dev/null | head -1) || type="single"
 
-        [ -z "$description" ] && description="Snapshot $snapshot_num"
+        [ -z "$description" ] && description="Snapshot $snapshot_number"
     fi
 
     echo "$description|$date|$type"
@@ -322,7 +322,7 @@ get_snapshot_info() {
 
 # function to create custom os-release for snapshot with timestamp and kernel in title
 create_snapshot_osrelease() {
-    local snapshot_num="$1"
+    local snapshot_number="$1"
     local description="$2"
     local date="$3"
     local kernel="$4"
@@ -338,17 +338,17 @@ create_snapshot_osrelease() {
     fi
 
     # format kernel name for display (e.g., "linux-hardened" -> "hardened")
-    local kernel_short="${kernel#linux-}"
-    [ "$kernel_short" = "linux" ] && kernel_short="mainline"
+    local kernel_short_name="${kernel#linux-}"
+    [ "$kernel_short_name" = "linux" ] && kernel_short_name="mainline"
 
     # create custom os-release with snapshot info in the name
     # format: "Snapshot #N [kernel] (date)"
     cat > "$osrelease_file" <<EOF
 NAME="Arch Linux"
-PRETTY_NAME="Snapshot #${snapshot_num} [${kernel_short}] (${formatted_date})"
+PRETTY_NAME="Snapshot #${snapshot_number} [${kernel_short_name}] (${formatted_date})"
 ID=arch
 BUILD_ID=rolling
-VERSION_ID=${snapshot_num}
+VERSION_ID=${snapshot_number}
 ANSI_COLOR="38;2;23;147;209"
 EOF
     echo "$osrelease_file"
@@ -359,13 +359,13 @@ list_snapshots() {
     log_info "Available BTRFS root snapshots:"
     if [ -d "$SNAPSHOTS_DIR" ]; then
         local count=0
-        for dir in "$SNAPSHOTS_DIR"/*/snapshot; do
-            if [ -d "$dir" ]; then
-                local num=$(basename "$(dirname "$dir")")
-                local info=$(get_snapshot_info "$num")
-                local desc=$(echo "$info" | cut -d'|' -f1)
+        for directory in "$SNAPSHOTS_DIR"/*/snapshot; do
+            if [ -d "$directory" ]; then
+                local number=$(basename "$(dirname "$directory")")
+                local info=$(get_snapshot_info "$number")
+                local description=$(echo "$info" | cut -d'|' -f1)
                 local date=$(echo "$info" | cut -d'|' -f2)
-                echo "    [$num] $desc ($date)"
+                echo "    [$number] $description ($date)"
                 ((count++)) || true
             fi
         done
@@ -379,9 +379,9 @@ list_snapshots() {
 }
 
 # function to generate UKI for a snapshot
-# parameters: snapshot_num, kernel, cmdline, description, snapshot_date
+# parameters: snapshot_number, kernel, cmdline, description, snapshot_date
 generate_snapshot_uki() {
-    local snapshot_num="$1"
+    local snapshot_number="$1"
     local kernel="$2"
     local cmdline="$3"
     local description="$4"
@@ -389,7 +389,7 @@ generate_snapshot_uki() {
 
     local vmlinuz="/boot/vmlinuz-${kernel}"
     local initrd="/boot/initramfs-${kernel}.img"
-    local uki_output="${UKI_DIR}/${SNAPSHOT_UKI_PREFIX}-${snapshot_num}-${kernel}.efi"
+    local uki_output="${UKI_DIR}/${SNAPSHOT_UKI_PREFIX}-${snapshot_number}-${kernel}.efi"
 
     # verify kernel exists
     if [ ! -f "$vmlinuz" ]; then
@@ -405,28 +405,28 @@ generate_snapshot_uki() {
 
     # create custom os-release with snapshot timestamp and kernel name
     local osrelease_file
-    osrelease_file=$(create_snapshot_osrelease "$snapshot_num" "$description" "$snapshot_date" "$kernel")
+    osrelease_file=$(create_snapshot_osrelease "$snapshot_number" "$description" "$snapshot_date" "$kernel")
 
     # create temporary cmdline file
     local cmdline_file=$(mktemp)
     echo "$cmdline" > "$cmdline_file"
 
-    log_info "Building UKI for snapshot #$snapshot_num ($kernel)..."
+    log_info "Building UKI for snapshot #$snapshot_number ($kernel)..."
 
     # use ukify to build the UKI
     if command -v ukify &>/dev/null; then
         # build ukify command arguments
-        local ukify_cmd=(ukify build --linux="$vmlinuz")
+        local ukify_command=(ukify build --linux="$vmlinuz")
 
         # add microcode first, then main initrd
-        [ -f "/boot/intel-ucode.img" ] && ukify_cmd+=("--initrd=/boot/intel-ucode.img")
-        [ -f "/boot/amd-ucode.img" ] && ukify_cmd+=("--initrd=/boot/amd-ucode.img")
-        ukify_cmd+=("--initrd=$initrd")
-        ukify_cmd+=("--cmdline=@$cmdline_file")
-        ukify_cmd+=("--os-release=@$osrelease_file")
-        ukify_cmd+=("--output=$uki_output")
+        [ -f "/boot/intel-ucode.img" ] && ukify_command+=("--initrd=/boot/intel-ucode.img")
+        [ -f "/boot/amd-ucode.img" ] && ukify_command+=("--initrd=/boot/amd-ucode.img")
+        ukify_command+=("--initrd=$initrd")
+        ukify_command+=("--cmdline=@$cmdline_file")
+        ukify_command+=("--os-release=@$osrelease_file")
+        ukify_command+=("--output=$uki_output")
 
-        if ! "${ukify_cmd[@]}"; then
+        if ! "${ukify_command[@]}"; then
             rm -f "$cmdline_file" "$osrelease_file"
             log_error "ukify failed to build UKI"
             return 1
@@ -513,29 +513,29 @@ refresh_entries() {
     fi
 
     # get sorted list of snapshot numbers (newest first)
-    local snapshot_nums=()
-    for dir in "$SNAPSHOTS_DIR"/*/snapshot; do
-        if [ -d "$dir" ]; then
-            snapshot_nums+=("$(basename "$(dirname "$dir")")")
+    local snapshot_numbers=()
+    for directory in "$SNAPSHOTS_DIR"/*/snapshot; do
+        if [ -d "$directory" ]; then
+            snapshot_numbers+=("$(basename "$(dirname "$directory")")")
         fi
     done
 
-    if [ ${#snapshot_nums[@]} -eq 0 ]; then
+    if [ ${#snapshot_numbers[@]} -eq 0 ]; then
         log_warn "No snapshots found in $SNAPSHOTS_DIR"
         return 0
     fi
 
     # sort numerically descending
-    IFS=$'\n' sorted_nums=($(sort -rn <<<"${snapshot_nums[*]}")); unset IFS
+    IFS=$'\n' sorted_nums=($(sort -rn <<<"${snapshot_numbers[*]}")); unset IFS
 
     local count=0
     local success=0
-    for snapshot_num in "${sorted_nums[@]}"; do
+    for snapshot_number in "${sorted_nums[@]}"; do
         if [ $count -ge $max_snapshots ]; then
             break
         fi
 
-        local snapshot_dir="$SNAPSHOTS_DIR/$snapshot_num/snapshot"
+        local snapshot_dir="$SNAPSHOTS_DIR/$snapshot_number/snapshot"
         if [ ! -d "$snapshot_dir" ]; then
             continue
         fi
@@ -544,30 +544,30 @@ refresh_entries() {
         local is_readonly
         is_readonly=$(btrfs property get "$snapshot_dir" ro 2>/dev/null | grep -o "true\|false" || echo "unknown")
 
-        local snapshot_subvol="@snapshots/${snapshot_num}/snapshot"
+        local snapshot_subvolume="@snapshots/${snapshot_number}/snapshot"
 
         # get snapshot info
-        local info=$(get_snapshot_info "$snapshot_num")
+        local info=$(get_snapshot_info "$snapshot_number")
         local description=$(echo "$info" | cut -d'|' -f1)
-        local snap_date=$(echo "$info" | cut -d'|' -f2)
+        local snapshot_date=$(echo "$info" | cut -d'|' -f2)
 
         # make snapshot writable if needed (required for booting)
         if [ "$is_readonly" = "true" ]; then
-            log_info "Making snapshot #$snapshot_num writable for boot..."
+            log_info "Making snapshot #$snapshot_number writable for boot..."
             if ! btrfs property set "$snapshot_dir" ro false 2>/dev/null; then
-                log_warn "Could not make snapshot #$snapshot_num writable - boot may fail"
+                log_warn "Could not make snapshot #$snapshot_number writable - boot may fail"
             fi
         fi
 
         # generate bootable UKI for this snapshot
-        log_info "Generating UKI for snapshot #$snapshot_num ($description)..."
+        log_info "Generating UKI for snapshot #$snapshot_number ($description)..."
         local cmdline
-        cmdline=$(build_snapshot_cmdline "$snapshot_subvol" "rw")
-        if generate_snapshot_uki "$snapshot_num" "$kernel" "$cmdline" "$description" "$snap_date"; then
-            log_info "Successfully created UKI for snapshot #$snapshot_num"
+        cmdline=$(build_snapshot_cmdline "$snapshot_subvolume" "rw")
+        if generate_snapshot_uki "$snapshot_number" "$kernel" "$cmdline" "$description" "$snapshot_date"; then
+            log_info "Successfully created UKI for snapshot #$snapshot_number"
             ((success++)) || true
         else
-            log_error "Failed to create UKI for snapshot #$snapshot_num"
+            log_error "Failed to create UKI for snapshot #$snapshot_number"
         fi
 
         ((count++)) || true

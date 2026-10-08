@@ -541,6 +541,8 @@ class InstallationAssertions:
             line for line in plain_lines if line.startswith(("Passed:", "Failed:", "Warnings:"))
         ]
         print(f"    verify-install summary: {', '.join(summary)}")
+        for warning in (line for line in plain_lines if line.startswith(("⚠", "[WARN]"))):
+            print(f"      {warning}")
         used_expectations = "Using expectations from /etc/dali/expected-state.env" in stdout
         compared_hostname = f"Hostname: {expected_hostname}" in stdout
         return self._assert(

@@ -1,6 +1,6 @@
 # DALI (Declarative ArchLinux Installer): Comprehensive Functional Map
 
-> Module inventory, test tables and import graphs are generated from the code (Python AST); the overview and data flow are written by hand. Total: ~15,412 lines (5,691 source, 7,099 tests, 2,622 shell scripts).
+> Module inventory, test tables and import graphs are generated from the code (Python AST); the overview and data flow are written by hand. Total: ~15,414 lines (5,691 source, 7,101 tests, 2,622 shell scripts).
 
 ---
 
@@ -54,7 +54,7 @@ DALI is a **declarative, deterministic, idempotent** Arch Linux installer that:
 
 - Python 3.13+, Poetry, PyYAML, cryptography (AES-256-GCM for secrets)
 - Dev: pytest, pytest-cov, pytest-xdist, pytest-timeout, ruff, docker (unused)
-- 5,691 lines of source code, 7,099 lines of tests, 2,622 lines of shell scripts
+- 5,691 lines of source code, 7,101 lines of tests, 2,622 lines of shell scripts
 
 ---
 
@@ -858,10 +858,6 @@ Main system configuration; every section maps to a dataclass in `config/models.p
 
 Example config for the dotfiles-sync shell script.
 
-### `config/pacman/hooks/95-snapshot-uki-refresh.hook` (29 lines) and `config/pacman/scripts/refresh-snapshot-ukis`
-
-Pacman hook that auto-refreshes snapshot UKIs after kernel updates.
-
 ### `config/systemd/dotfiles-sync.service` (45 lines) and `config/systemd/dotfiles-sync.timer`
 
 Systemd timer for automatic dotfiles synchronization.
@@ -966,13 +962,13 @@ Full end-to-end tests running the installer in QEMU VMs with UEFI Secure Boot.
 | ---- | ----- | ------- |
 | `vm.py` | 615 | `QemuVm`: VM lifecycle (setup, start, stop, reboot with LUKS passphrase over serial), SSH/SCP via sshpass, console typing via monitor `sendkey`. OVMF/QEMU/sshpass discovery, `wait_for_vm_boot_and_network()` |
 | `conftest.py` | 253 | Fixtures `qemu_vm_with_network`, `qemu_vm_with_usb_disk_and_network`, `package_cache_proxy`, config fixtures. Options `--arch-iso`, `--qemu-memory`, `--qemu-cpus`, `--qemu-disk-size`, `--qemu-work-dir`, `--qemu-display`, `--keep-vm`, `--package-cache-dir`, `--offline-mode`. Per-xdist-worker SSH port ranges |
-| `assertions.py` | 1238 | `InstallationAssertions`: soft assertions (each prints ✓/✗, `raise_if_failed()` at the end) for partitions, LUKS, BTRFS, boot/UKI, secure boot, ESP random seed, system config, swap/hibernation, snapper, services, USB drive and backup |
+| `assertions.py` | 1240 | `InstallationAssertions`: soft assertions (each prints ✓/✗, `raise_if_failed()` at the end) for partitions, LUKS, BTRFS, boot/UKI, secure boot, ESP random seed, system config, swap/hibernation, snapper, services, USB drive and backup |
 | `tmux_driver.py` | 80 | `TmuxSession`, `TmuxScreenInput`: runs a curses program in tmux on the VM, waits for each screen in the rendered pane, sends keys, and collects the exit code |
 | `package_cache.py` | 258 | `PackageCacheProxy`: local HTTP proxy caching pacman packages (fixture exists, no test uses it yet) |
 | `ssh_config.py` | 44 | Commands run before rebooting into the installed system: root SSH login, sshd, a ufw rule for port 22 (test access only), NetworkManager, serial console |
 | `uefi_setup.py` | 184 | Secure Boot status from EFI variables: `verify_secure_boot_properly_configured()`, `verify_setup_mode_before_install()`, `print_secure_boot_summary()` |
 | `tui_test_runner.py` | 50 | Copied to the VM: runs `run_tui_setup()` and dumps the resulting selections to JSON |
-| `qemu_manual_test.sh` | 550 | Launches a VM for manual testing (VNC + SSH) |
+| `qemu_manual_test.sh` | 598 | Launches a VM for manual testing (VNC + SSH) |
 
 **Test files:**
 

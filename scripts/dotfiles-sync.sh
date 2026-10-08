@@ -263,10 +263,10 @@ show_confirm_dialog() {
 # acquire lock to prevent concurrent runs
 acquire_lock() {
     if [ -f "$LOCK_FILE" ]; then
-        local pid
-        pid=$(cat "$LOCK_FILE")
-        if kill -0 "$pid" 2>/dev/null; then
-            die "Another instance is running (PID: $pid). Exiting."
+        local process_id
+        process_id=$(cat "$LOCK_FILE")
+        if kill -0 "$process_id" 2>/dev/null; then
+            die "Another instance is running (PID: $process_id). Exiting."
         else
             log_warn "Stale lock file found. Removing..."
             rm -f "$LOCK_FILE"
@@ -379,10 +379,10 @@ check_permissions() {
             return 1
         fi
     elif [ "$mode" = "write" ]; then
-        local dir
-        dir=$(dirname "$file")
-        if [ ! -w "$dir" ]; then
-            log_error "Cannot write to directory: $dir (permission denied)"
+        local directory
+        directory=$(dirname "$file")
+        if [ ! -w "$directory" ]; then
+            log_error "Cannot write to directory: $directory (permission denied)"
             log_error "You may need to run with sudo for system files"
             return 1
         fi
@@ -428,10 +428,10 @@ increment_version() {
 
 # load file mappings from config or use defaults
 load_file_mappings() {
-    local -n mappings_ref=$1
+    local -n mappings_reference=$1
 
     # start with defaults
-    mappings_ref=("${DEFAULT_FILE_MAPPINGS[@]}")
+    mappings_reference=("${DEFAULT_FILE_MAPPINGS[@]}")
 
     # override/extend with config file if it exists
     if [ -f "$DOTFILES_CONFIG" ]; then
@@ -440,13 +440,13 @@ load_file_mappings() {
         # read custom mappings from YAML config
         if command -v yq &>/dev/null; then
             while IFS= read -r line; do
-                [ -n "$line" ] && mappings_ref+=("$line")
+                [ -n "$line" ] && mappings_reference+=("$line")
             done < <(yq -r '.mappings[]? // empty' "$DOTFILES_CONFIG" 2>/dev/null || true)
 
             # read repo path override
-            local repo_path
-            repo_path=$(yq -r '.repo_path // empty' "$DOTFILES_CONFIG" 2>/dev/null || true)
-            [ -n "$repo_path" ] && DOTFILES_REPO="$repo_path"
+            local repository_path
+            repository_path=$(yq -r '.repo_path // empty' "$DOTFILES_CONFIG" 2>/dev/null || true)
+            [ -n "$repository_path" ] && DOTFILES_REPO="$repository_path"
         fi
     fi
 }
@@ -456,8 +456,8 @@ load_file_mappings() {
 # =============================================================================
 
 # initialize dotfiles repository
-init_repo() {
-    local repo_url="$1"
+init_repository() {
+    local repository_url="$1"
 
     log_info "Initializing dotfiles repository..."
 
@@ -475,10 +475,10 @@ init_repo() {
     check_ssh || die "SSH setup required before cloning"
 
     # test connection to git server
-    test_git_connection "$repo_url"
+    test_git_connection "$repository_url"
 
-    log_info "Cloning $repo_url to $DOTFILES_REPO..."
-    if ! git clone "$repo_url" "$DOTFILES_REPO"; then
+    log_info "Cloning $repository_url to $DOTFILES_REPO..."
+    if ! git clone "$repository_url" "$DOTFILES_REPO"; then
         die "Failed to clone repository. Check the URL and your SSH setup."
     fi
 
@@ -517,18 +517,18 @@ show_status() {
     load_file_mappings mappings
 
     for mapping in "${mappings[@]}"; do
-        local src="${mapping%%:*}"
-        local dst="${mapping#*:}"
-        local src_expanded="${src/#\~/$HOME}"
+        local source_path="${mapping%%:*}"
+        local destination_path="${mapping#*:}"
+        local expanded_source_path="${source_path/#\~/$HOME}"
 
-        if [ -e "$src_expanded" ]; then
-            if [ -e "$DOTFILES_REPO/$dst" ]; then
-                echo -e "  ${GREEN}✓${NC} $src -> $dst"
+        if [ -e "$expanded_source_path" ]; then
+            if [ -e "$DOTFILES_REPO/$destination_path" ]; then
+                echo -e "  ${GREEN}✓${NC} $source_path -> $destination_path"
             else
-                echo -e "  ${YELLOW}+${NC} $src -> $dst (not in repo)"
+                echo -e "  ${YELLOW}+${NC} $source_path -> $destination_path (not in repo)"
             fi
         else
-            echo -e "  ${RED}✗${NC} $src -> $dst (missing locally)"
+            echo -e "  ${RED}✗${NC} $source_path -> $destination_path (missing locally)"
         fi
     done
 }
@@ -546,32 +546,32 @@ show_diff() {
     local has_diff=false
 
     for mapping in "${mappings[@]}"; do
-        local src="${mapping%%:*}"
-        local dst="${mapping#*:}"
-        local src_expanded="${src/#\~/$HOME}"
-        local repo_file="$DOTFILES_REPO/$dst"
+        local source_path="${mapping%%:*}"
+        local destination_path="${mapping#*:}"
+        local expanded_source_path="${source_path/#\~/$HOME}"
+        local repository_file="$DOTFILES_REPO/$destination_path"
 
-        if [ -e "$src_expanded" ] && [ -e "$repo_file" ]; then
-            if [ -d "$src_expanded" ]; then
+        if [ -e "$expanded_source_path" ] && [ -e "$repository_file" ]; then
+            if [ -d "$expanded_source_path" ]; then
                 # directory diff
-                if ! diff -rq "$src_expanded" "$repo_file" &>/dev/null; then
-                    echo -e "\n${YELLOW}=== $src (directory) ===${NC}"
-                    diff -r "$src_expanded" "$repo_file" 2>/dev/null || true
+                if ! diff -rq "$expanded_source_path" "$repository_file" &>/dev/null; then
+                    echo -e "\n${YELLOW}=== $source_path (directory) ===${NC}"
+                    diff -r "$expanded_source_path" "$repository_file" 2>/dev/null || true
                     has_diff=true
                 fi
             else
                 # file diff
-                if ! diff -q "$src_expanded" "$repo_file" &>/dev/null; then
-                    echo -e "\n${YELLOW}=== $src ===${NC}"
-                    diff --color=auto "$src_expanded" "$repo_file" 2>/dev/null || true
+                if ! diff -q "$expanded_source_path" "$repository_file" &>/dev/null; then
+                    echo -e "\n${YELLOW}=== $source_path ===${NC}"
+                    diff --color=auto "$expanded_source_path" "$repository_file" 2>/dev/null || true
                     has_diff=true
                 fi
             fi
-        elif [ -e "$src_expanded" ] && [ ! -e "$repo_file" ]; then
-            echo -e "\n${GREEN}+++ $src (new file)${NC}"
+        elif [ -e "$expanded_source_path" ] && [ ! -e "$repository_file" ]; then
+            echo -e "\n${GREEN}+++ $source_path (new file)${NC}"
             has_diff=true
-        elif [ ! -e "$src_expanded" ] && [ -e "$repo_file" ]; then
-            echo -e "\n${RED}--- $src (deleted locally)${NC}"
+        elif [ ! -e "$expanded_source_path" ] && [ -e "$repository_file" ]; then
+            echo -e "\n${RED}--- $source_path (deleted locally)${NC}"
             has_diff=true
         fi
     done
@@ -622,54 +622,54 @@ push_changes() {
     fi
 
     for mapping in "${mappings[@]}"; do
-        local src="${mapping%%:*}"
-        local dst="${mapping#*:}"
-        local src_expanded="${src/#\~/$HOME}"
-        local repo_file="$DOTFILES_REPO/$dst"
+        local source_path="${mapping%%:*}"
+        local destination_path="${mapping#*:}"
+        local expanded_source_path="${source_path/#\~/$HOME}"
+        local repository_file="$DOTFILES_REPO/$destination_path"
 
-        if [ ! -e "$src_expanded" ]; then
+        if [ ! -e "$expanded_source_path" ]; then
             continue
         fi
 
         # check read permissions
-        if ! check_permissions "$src_expanded" "read"; then
-            log_warn "Skipping $src (permission denied)"
+        if ! check_permissions "$expanded_source_path" "read"; then
+            log_warn "Skipping $source_path (permission denied)"
             continue
         fi
 
         # create destination directory
-        local repo_dir
-        repo_dir=$(dirname "$repo_file")
+        local repository_directory
+        repository_directory=$(dirname "$repository_file")
 
         if [ "$dry_run" = false ]; then
-            mkdir -p "$repo_dir"
+            mkdir -p "$repository_directory"
         fi
 
         # check if file/dir has changed
         local needs_update=false
-        if [ -d "$src_expanded" ]; then
+        if [ -d "$expanded_source_path" ]; then
             # directory comparison
-            if [ ! -d "$repo_file" ] || ! diff -rq "$src_expanded" "$repo_file" &>/dev/null; then
+            if [ ! -d "$repository_file" ] || ! diff -rq "$expanded_source_path" "$repository_file" &>/dev/null; then
                 needs_update=true
             fi
         else
             # file comparison
-            if [ ! -f "$repo_file" ] || ! diff -q "$src_expanded" "$repo_file" &>/dev/null; then
+            if [ ! -f "$repository_file" ] || ! diff -q "$expanded_source_path" "$repository_file" &>/dev/null; then
                 needs_update=true
             fi
         fi
 
         if [ "$needs_update" = true ]; then
             if [ "$dry_run" = true ]; then
-                log_info "[DRY RUN] Would copy: $src -> $dst"
+                log_info "[DRY RUN] Would copy: $source_path -> $destination_path"
             else
-                if [ -d "$src_expanded" ]; then
-                    rm -rf "$repo_file"
-                    cp -r "$src_expanded" "$repo_file"
+                if [ -d "$expanded_source_path" ]; then
+                    rm -rf "$repository_file"
+                    cp -r "$expanded_source_path" "$repository_file"
                 else
-                    cp "$src_expanded" "$repo_file"
+                    cp "$expanded_source_path" "$repository_file"
                 fi
-                log_success "Updated: $src"
+                log_success "Updated: $source_path"
             fi
             changes_made=true
         fi
@@ -690,12 +690,12 @@ push_changes() {
     new_version=$(increment_version)
     echo "$new_version" > "$VERSION_FILE"
 
-    local commit_msg="dotfiles v$new_version - $(date '+%Y-%m-%d %H:%M')"
+    local commit_message="dotfiles v$new_version - $(date '+%Y-%m-%d %H:%M')"
 
     (
         cd "$DOTFILES_REPO"
         git add -A
-        git commit -m "$commit_msg" || {
+        git commit -m "$commit_message" || {
             log_warn "Nothing to commit"
             return 0
         }
@@ -752,62 +752,62 @@ pull_changes() {
     local skipped_sensitive=()
 
     for mapping in "${mappings[@]}"; do
-        local src="${mapping%%:*}"
-        local dst="${mapping#*:}"
-        local src_expanded="${src/#\~/$HOME}"
-        local repo_file="$DOTFILES_REPO/$dst"
+        local source_path="${mapping%%:*}"
+        local destination_path="${mapping#*:}"
+        local expanded_source_path="${source_path/#\~/$HOME}"
+        local repository_file="$DOTFILES_REPO/$destination_path"
 
-        if [ ! -e "$repo_file" ]; then
+        if [ ! -e "$repository_file" ]; then
             continue
         fi
 
         # check if sensitive file and skip unless --force
-        if is_sensitive_file "$src_expanded" && [ "$force" != true ]; then
-            skipped_sensitive+=("$src_expanded")
-            log_warn "Skipping sensitive file: $src (use --force to overwrite)"
+        if is_sensitive_file "$expanded_source_path" && [ "$force" != true ]; then
+            skipped_sensitive+=("$expanded_source_path")
+            log_warn "Skipping sensitive file: $source_path (use --force to overwrite)"
             continue
         fi
 
         # check write permissions
-        if ! check_permissions "$src_expanded" "write"; then
-            log_warn "Skipping $src (permission denied - may need sudo)"
+        if ! check_permissions "$expanded_source_path" "write"; then
+            log_warn "Skipping $source_path (permission denied - may need sudo)"
             continue
         fi
 
         # check if update needed
         local needs_update=false
-        if [ -d "$repo_file" ]; then
-            if [ ! -d "$src_expanded" ] || ! diff -rq "$repo_file" "$src_expanded" &>/dev/null; then
+        if [ -d "$repository_file" ]; then
+            if [ ! -d "$expanded_source_path" ] || ! diff -rq "$repository_file" "$expanded_source_path" &>/dev/null; then
                 needs_update=true
             fi
         else
-            if [ ! -f "$src_expanded" ] || ! diff -q "$repo_file" "$src_expanded" &>/dev/null; then
+            if [ ! -f "$expanded_source_path" ] || ! diff -q "$repository_file" "$expanded_source_path" &>/dev/null; then
                 needs_update=true
             fi
         fi
 
         if [ "$needs_update" = true ]; then
             if [ "$dry_run" = true ]; then
-                log_info "[DRY RUN] Would restore: $dst -> $src"
+                log_info "[DRY RUN] Would restore: $destination_path -> $source_path"
             else
                 # create parent directory
-                mkdir -p "$(dirname "$src_expanded")"
+                mkdir -p "$(dirname "$expanded_source_path")"
 
                 # backup existing file
-                if [ -e "$src_expanded" ]; then
-                    local backup="$src_expanded.backup.$(date +%s)"
-                    cp -r "$src_expanded" "$backup"
-                    log_info "Backed up: $src -> $backup"
+                if [ -e "$expanded_source_path" ]; then
+                    local backup="$expanded_source_path.backup.$(date +%s)"
+                    cp -r "$expanded_source_path" "$backup"
+                    log_info "Backed up: $source_path -> $backup"
                 fi
 
                 # copy from repo
-                if [ -d "$repo_file" ]; then
-                    rm -rf "$src_expanded"
-                    cp -r "$repo_file" "$src_expanded"
+                if [ -d "$repository_file" ]; then
+                    rm -rf "$expanded_source_path"
+                    cp -r "$repository_file" "$expanded_source_path"
                 else
-                    cp "$repo_file" "$src_expanded"
+                    cp "$repository_file" "$expanded_source_path"
                 fi
-                log_success "Restored: $src"
+                log_success "Restored: $source_path"
             fi
             changes_made=true
         fi
@@ -816,8 +816,8 @@ pull_changes() {
     # report skipped sensitive files
     if [ ${#skipped_sensitive[@]} -gt 0 ]; then
         log_warn "Skipped ${#skipped_sensitive[@]} sensitive file(s):"
-        for f in "${skipped_sensitive[@]}"; do
-            log_warn "  - $f"
+        for skipped_file in "${skipped_sensitive[@]}"; do
+            log_warn "  - $skipped_file"
         done
         log_info "Use 'pull --force' to overwrite these files"
     fi
@@ -883,7 +883,7 @@ main() {
     case "$command" in
         init)
             [ -z "${1:-}" ] && die "Usage: $0 init <repo-url>"
-            init_repo "$1"
+            init_repository "$1"
             ;;
         push)
             local dry_run=false

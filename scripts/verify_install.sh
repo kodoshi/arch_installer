@@ -103,19 +103,19 @@ verify_secure_boot() {
     if [[ -d /sys/firmware/efi/efivars ]]; then
         log_pass "System booted in UEFI mode"
 
-        local sb_state
-        sb_state=$(mokutil --sb-state 2>/dev/null || echo "unknown")
+        local secure_boot_state
+        secure_boot_state=$(mokutil --sb-state 2>/dev/null || echo "unknown")
 
-        if echo "$sb_state" | grep -qi "SecureBoot enabled"; then
+        if echo "$secure_boot_state" | grep -qi "SecureBoot enabled"; then
             log_pass "Secure Boot is ENABLED"
-        elif echo "$sb_state" | grep -qi "SecureBoot disabled"; then
+        elif echo "$secure_boot_state" | grep -qi "SecureBoot disabled"; then
             log_fail "Secure Boot is DISABLED"
             echo "         Enable Secure Boot in BIOS/UEFI settings"
         else
             if [[ -f /sys/firmware/efi/efivars/SecureBoot-* ]]; then
-                local sb_byte
-                sb_byte=$(od -An -t u1 /sys/firmware/efi/efivars/SecureBoot-* 2>/dev/null | awk '{print $NF}')
-                if [[ "$sb_byte" == "1" ]]; then
+                local secure_boot_byte
+                secure_boot_byte=$(od -An -t u1 /sys/firmware/efi/efivars/SecureBoot-* 2>/dev/null | awk '{print $NF}')
+                if [[ "$secure_boot_byte" == "1" ]]; then
                     log_pass "Secure Boot is ENABLED (via efivar)"
                 else
                     log_fail "Secure Boot is DISABLED (via efivar)"
@@ -294,17 +294,17 @@ verify_encryption() {
     if [[ -n "$luks_devices" ]]; then
         log_pass "LUKS encrypted device(s) found"
 
-        for dev in $luks_devices; do
-            local full_dev="/dev/$dev"
-            [[ -b "$full_dev" ]] || full_dev=$(lsblk -rno NAME,TYPE | grep "$dev.*part" | awk '{print "/dev/"$1}' | head -1)
+        for device in $luks_devices; do
+            local full_device="/dev/$device"
+            [[ -b "$full_device" ]] || full_device=$(lsblk -rno NAME,TYPE | grep "$device.*part" | awk '{print "/dev/"$1}' | head -1)
 
-            if [[ -b "$full_dev" ]]; then
+            if [[ -b "$full_device" ]]; then
                 echo ""
-                echo "  Checking $full_dev:"
+                echo "  Checking $full_device:"
 
                 # get LUKS info
                 local luks_info
-                luks_info=$(cryptsetup luksDump "$full_dev" 2>/dev/null || true)
+                luks_info=$(cryptsetup luksDump "$full_device" 2>/dev/null || true)
 
                 # check LUKS version
                 if echo "$luks_info" | grep -q "Version:.*2"; then
@@ -373,17 +373,17 @@ verify_btrfs() {
     # list subvolumes
     echo ""
     echo "  BTRFS Subvolumes:"
-    local expected_subvols=("@" "@home" "@home-snapshots" "@srv" "@var" "@var-log" "@cache-pacman-pkgs" "@var-tmp" "@snapshots" "@swap" "@docker" "@libvirt")
+    local expected_subvolumes=("@" "@home" "@home-snapshots" "@srv" "@var" "@var-log" "@cache-pacman-pkgs" "@var-tmp" "@snapshots" "@swap" "@docker" "@libvirt")
 
-    local mounted_subvols
-    mounted_subvols=$(findmnt -n -t btrfs -o TARGET,OPTIONS | grep "subvol=" || true)
+    local mounted_subvolumes
+    mounted_subvolumes=$(findmnt -n -t btrfs -o TARGET,OPTIONS | grep "subvol=" || true)
 
-    for subvol in "${expected_subvols[@]}"; do
-        # match both subvol=/@name and subvol=@name patterns
-        if echo "$mounted_subvols" | grep -qE "subvol=/?${subvol}(,|$|[[:space:]])"; then
-            log_pass "Subvolume mounted: $subvol"
+    for subvolume in "${expected_subvolumes[@]}"; do
+        # match both subvolume=/@name and subvolume=@name patterns
+        if echo "$mounted_subvolumes" | grep -qE "subvol=/?${subvolume}(,|$|[[:space:]])"; then
+            log_pass "Subvolume mounted: $subvolume"
         else
-            log_warn "Subvolume NOT mounted: $subvol"
+            log_warn "Subvolume NOT mounted: $subvolume"
         fi
     done
 
@@ -405,14 +405,14 @@ verify_btrfs() {
     # check nocow directories
     echo ""
     echo "  NoCoW directories:"
-    for dir in /var /var/lib/docker /var/lib/libvirt /.swap; do
-        if [[ -d "$dir" ]]; then
-            local attrs
-            attrs=$(lsattr -d "$dir" 2>/dev/null | awk '{print $1}')
-            if echo "$attrs" | grep -q "C"; then
-                log_pass "$dir has NoCoW attribute"
+    for directory in /var /var/lib/docker /var/lib/libvirt /.swap; do
+        if [[ -d "$directory" ]]; then
+            local attributes
+            attributes=$(lsattr -d "$directory" 2>/dev/null | awk '{print $1}')
+            if echo "$attributes" | grep -q "C"; then
+                log_pass "$directory has NoCoW attribute"
             else
-                log_info "$dir does not have NoCoW attribute"
+                log_info "$directory does not have NoCoW attribute"
             fi
         fi
     done
@@ -459,12 +459,12 @@ verify_swap() {
         fi
 
         # check permissions
-        local perms
-        perms=$(stat -c %a "$swap_path")
-        if [[ "$perms" == "600" ]]; then
+        local permissions
+        permissions=$(stat -c %a "$swap_path")
+        if [[ "$permissions" == "600" ]]; then
             log_pass "Swapfile permissions correct (600)"
         else
-            log_warn "Swapfile permissions: $perms (should be 600)"
+            log_warn "Swapfile permissions: $permissions (should be 600)"
         fi
     else
         log_fail "Swapfile does NOT exist at $swap_path"
@@ -922,13 +922,13 @@ verify_firewall() {
 verify_packages() {
     log_section "ESSENTIAL PACKAGES"
 
-    local essential_pkgs=("base" "linux-firmware" "btrfs-progs" "efibootmgr" "networkmanager" "sbctl" "sudo" "ufw")
+    local essential_packages=("base" "linux-firmware" "btrfs-progs" "efibootmgr" "networkmanager" "sbctl" "sudo" "ufw")
 
-    for pkg in "${essential_pkgs[@]}"; do
-        if pacman -Q "$pkg" &>/dev/null; then
-            log_pass "$pkg is installed"
+    for package in "${essential_packages[@]}"; do
+        if pacman -Q "$package" &>/dev/null; then
+            log_pass "$package is installed"
         else
-            log_fail "$pkg is NOT installed"
+            log_fail "$package is NOT installed"
         fi
     done
 

@@ -2,12 +2,13 @@
 # Manual QEMU testing script for arch_installer
 #
 # This script launches a QEMU VM with:
-# - UEFI secure boot in setup mode (keys can be enrolled after install)
+# - UEFI Secure Boot in setup mode (the installer enrolls its keys)
 # - VNC display for visual interaction
 # - SSH access for command execution
+# - this working tree copied to /root/arch_installer, with its dependencies installed
 #
 # Usage:
-#   ./scripts/qemu_manual_test.sh [ISO_PATH] [OPTIONS]
+#   tests/qemu/qemu_manual_test.sh [ISO_PATH] [OPTIONS]
 #
 # Options:
 #   --disk-size SIZE     Disk size in GB (default: 40)
@@ -16,20 +17,26 @@
 #                        (default: ~/.cache/arch-installer-qemu/manual, not /tmp: often tmpfs)
 #   --vnc-port PORT      VNC display port offset (default: 50, so VNC port 5950)
 #   --ssh-port PORT      SSH port forwarding (default: 2222)
-#   --usb-disk [SIZE]    Add a USB mass storage drive (/dev/sda) for USB boot (PDE) testing
-#                        (default size: 4GB, appears as /dev/vdb in the VM)
+#   --usb-disk [SIZE]    Add a USB mass storage drive (/dev/sda in the VM) for the
+#                        USB boot drive (default size: 8GB)
+#   --no-iso             Start the installed system from the disks in the work directory
+#                        (use with --keep on the run that installed it)
+#   --no-copy            Do not copy this working tree into the live system
 #   --keep               Keep VM files after exit
 #   --headless           Run without VNC display (SSH only)
 #
 # Requirements:
-#   - qemu-full (qemu-system-x86_64)
-#   - edk2-ovmf (UEFI firmware with secure boot support)
+#   - qemu-full (qemu-system-x86_64), edk2-ovmf (UEFI firmware with Secure Boot)
+#   - socat, nc (openbsd-netcat), sshpass
 #
-# After installation completes:
-#   1. Reboot the VM into the installed system
-#   2. The system will be in secure boot setup mode
-#   3. Enroll your keys with: sbctl enroll-keys --microsoft
-#   4. Reboot again - secure boot is now active
+# Demo:
+#   1. tests/qemu/qemu_manual_test.sh --usb-disk --keep
+#   2. in the VNC console: cd /root/arch_installer && make run
+#      (USB boot drive: /dev/sda, recovery ISO: /dev/sr0, wipe method: secure)
+#   3. after the installation: poweroff, then press Enter here
+#   4. tests/qemu/qemu_manual_test.sh --usb-disk --keep --no-iso
+#      boots from the USB drive and asks for the LUKS passphrase on the console;
+#      without --usb-disk nothing boots
 #
 # SSH access (during live ISO):
 #   ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null root@localhost -p 2222
@@ -54,6 +61,11 @@ KEEP_FILES=false
 HEADLESS=false
 USB_DISK=false
 USB_DISK_SIZE_GB=8
+BOOT_ISO=true
+COPY_REPOSITORY=true
+REPOSITORY_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+SSH_OPTIONS=(-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR
+    -o ConnectTimeout=5 -o PasswordAuthentication=yes -o PubkeyAuthentication=no)
 
 # ANSI colors
 RED='\033[0;31m'
@@ -68,7 +80,7 @@ print_warning() { echo -e "${YELLOW}[WARN]${NC} $*"; }
 print_error() { echo -e "${RED}[ERROR]${NC} $*"; }
 
 usage() {
-    head -n 40 "$0" | tail -n +2 | sed 's/^# //' | sed 's/^#//'
+    sed -n '2,/^$/p' "$0" | sed 's/^# \{0,1\}//'
     exit 0
 }
 
@@ -110,6 +122,14 @@ while [[ $# -gt 0 ]]; do
             fi
             shift
             ;;
+        --no-iso)
+            BOOT_ISO=false
+            shift
+            ;;
+        --no-copy)
+            COPY_REPOSITORY=false
+            shift
+            ;;
         --keep)
             KEEP_FILES=true
             shift
@@ -140,6 +160,11 @@ check_requirements() {
         missing+=("qemu-img (install qemu-full)")
     fi
 
+    local tool
+    for tool in socat nc sshpass; do
+        command -v "$tool" &>/dev/null || missing+=("$tool")
+    done
+
     # check for OVMF files
     local ovmf_code=""
     local ovmf_vars=""
@@ -168,8 +193,8 @@ check_requirements() {
 
     if [[ ${#missing[@]} -gt 0 ]]; then
         print_error "Missing requirements:"
-        for req in "${missing[@]}"; do
-            echo "  - $req"
+        for requirement in "${missing[@]}"; do
+            echo "  - $requirement"
         done
         exit 1
     fi
@@ -179,8 +204,19 @@ check_requirements() {
     export OVMF_VARS="$ovmf_vars"
 }
 
+# QEMU only reports that it could not forward the port, so check it first
+check_ssh_port() {
+    if nc -z localhost "$SSH_PORT" 2>/dev/null; then
+        print_error "Port $SSH_PORT is already in use on this host: choose another with --ssh-port"
+        exit 1
+    fi
+}
+
 # check if ISO exists
 check_iso() {
+    if [[ "$BOOT_ISO" != "true" ]]; then
+        return 0
+    fi
     if [[ ! -f "$ARCH_ISO" ]]; then
         print_error "ISO file not found: $ARCH_ISO"
         echo "Download from: https://archlinux.org/download/"
@@ -192,6 +228,10 @@ check_iso() {
 # set up working directory
 setup_work_dir() {
     print_info "Setting up work directory: $WORK_DIR"
+    if [[ "$BOOT_ISO" != "true" && ! -f "$WORK_DIR/disk.qcow2" ]]; then
+        print_error "--no-iso starts the disks in $WORK_DIR: install onto them first (with --keep)"
+        exit 1
+    fi
     mkdir -p "$WORK_DIR"
 
     # create disk image if doesn't exist
@@ -202,9 +242,14 @@ setup_work_dir() {
         print_info "Using existing disk image"
     fi
 
-    # copy OVMF vars (needs to be writable for secure boot)
-    print_info "Setting up UEFI firmware..."
-    cp "$OVMF_VARS" "$WORK_DIR/OVMF_VARS.fd"
+
+    # the UEFI variables hold the enrolled Secure Boot keys, so a kept VM keeps its copy
+    if [[ ! -f "$WORK_DIR/OVMF_VARS.fd" ]]; then
+        print_info "Setting up UEFI firmware..."
+        cp "$OVMF_VARS" "$WORK_DIR/OVMF_VARS.fd"
+    else
+        print_info "Using existing UEFI variables (enrolled keys are kept)"
+    fi
 
     # create USB disk image if requested
     if [[ "$USB_DISK" == "true" ]]; then
@@ -221,79 +266,86 @@ setup_work_dir() {
 
 # build QEMU command
 build_qemu_command() {
-    local cmd=(
+    local qemu_arguments=(
         qemu-system-x86_64
         -machine "q35,smm=on"
-        -cpu "host"
         -smp "$CPUS"
         -m "$MEMORY_MB"
     )
 
-    # enable KVM if available
+    # enable KVM if available; the host CPU model needs it
     if [[ -r /dev/kvm ]]; then
-        cmd+=("-enable-kvm")
+        qemu_arguments+=("-enable-kvm" "-cpu" "host")
         print_success "KVM acceleration enabled" >&2
     else
+        qemu_arguments+=("-cpu" "max")
         print_warning "KVM not available, running in emulation mode (slow)" >&2
     fi
 
     # UEFI firmware with secure boot in setup mode
     # using pflash for proper UEFI variable storage
-    cmd+=(
+    qemu_arguments+=(
         -global "driver=cfi.pflash01,property=secure,value=on"
         -drive "if=pflash,format=raw,unit=0,file=$OVMF_CODE,readonly=on"
         -drive "if=pflash,format=raw,unit=1,file=$WORK_DIR/OVMF_VARS.fd"
     )
 
-    # disk
-    cmd+=(
-        -drive "file=$WORK_DIR/disk.qcow2,format=qcow2,if=virtio"
+    # disk; its serial number gives it a /dev/disk/by-id name, as a real disk has, which
+    # the USB boot drive needs to find a disk without a partition table
+    qemu_arguments+=(
+        -drive "if=none,id=disk,file=$WORK_DIR/disk.qcow2,format=qcow2"
+        -device "virtio-blk-pci,drive=disk,serial=dali-demo-disk"
     )
 
-    # USB drive on an xHCI controller, removable like a stick (USB boot drive testing)
+    # USB drive on an xHCI controller, removable like a stick (USB boot drive testing);
+    # without the ISO the firmware starts from it first
     if [[ "$USB_DISK" == "true" ]]; then
-        cmd+=(
+        local boot_order=""
+        [[ "$BOOT_ISO" != "true" ]] && boot_order=",bootindex=1"
+        qemu_arguments+=(
             -device qemu-xhci,id=xhci
             -drive "if=none,id=usb-disk,file=$WORK_DIR/usb_disk.qcow2,format=qcow2"
-            -device usb-storage,bus=xhci.0,drive=usb-disk,removable=on
+            -device "usb-storage,bus=xhci.0,drive=usb-disk,removable=on$boot_order"
         )
         print_info "USB drive attached as /dev/sda (${USB_DISK_SIZE_GB}GB)" >&2
     fi
 
     # CD-ROM with ISO
-    cmd+=(
-        -cdrom "$ARCH_ISO"
-        -boot "d"
-    )
+    if [[ "$BOOT_ISO" == "true" ]]; then
+        qemu_arguments+=(
+            -cdrom "$ARCH_ISO"
+            -boot "d"
+        )
+    fi
 
     # networking with SSH port forward
-    cmd+=(
+    qemu_arguments+=(
         -netdev "user,id=net0,hostfwd=tcp::${SSH_PORT}-:22"
         -device "virtio-net-pci,netdev=net0"
     )
 
     # serial console on socket for interactive access and logging
-    cmd+=(
+    qemu_arguments+=(
         -chardev "socket,id=serial0,path=$WORK_DIR/serial.sock,server=on,wait=off,logfile=$WORK_DIR/serial.log"
         -serial "chardev:serial0"
     )
 
     # QEMU monitor on socket
-    cmd+=(
+    qemu_arguments+=(
         -monitor "unix:$WORK_DIR/monitor.sock,server,nowait"
     )
 
     # display
     if [[ "$HEADLESS" == "true" ]]; then
-        cmd+=("-display" "none")
+        qemu_arguments+=("-display" "none")
     else
-        cmd+=("-vnc" "127.0.0.1:${VNC_PORT}")
+        qemu_arguments+=("-vnc" "127.0.0.1:${VNC_PORT}")
     fi
 
     # run in background (daemonize)
-    cmd+=("-daemonize")
+    qemu_arguments+=("-daemonize")
 
-    echo "${cmd[@]}"
+    echo "${qemu_arguments[@]}"
 }
 
 # clean up on exit
@@ -301,7 +353,7 @@ cleanup() {
     # stop QEMU if running
     if [[ -S "$WORK_DIR/monitor.sock" ]]; then
         print_info "Stopping QEMU..."
-        echo "quit" | socat - "UNIX-CONNECT:$WORK_DIR/monitor.sock" 2>/dev/null || true
+        echo "quit" | socat - "UNIX-CONNECT:$WORK_DIR/monitor.sock" >/dev/null 2>&1 || true
         sleep 1
     fi
 
@@ -315,7 +367,7 @@ cleanup() {
 
 # send command via QEMU monitor sendkey (types into VM virtual keyboard)
 send_console_command() {
-    local cmd="$1"
+    local text="$1"
     local wait_after="${2:-1}"
     local socket="$WORK_DIR/monitor.sock"
 
@@ -362,16 +414,16 @@ send_console_command() {
 
     # build the list of commands to send
     local commands=""
-    for (( i=0; i<${#cmd}; i++ )); do
-        local char="${cmd:$i:1}"
+    for (( position=0; position<${#text}; position++ )); do
+        local character="${text:$position:1}"
         local key=""
 
-        if [[ -n "${key_map[$char]:-}" ]]; then
-            key="${key_map[$char]}"
-        elif [[ "$char" =~ [A-Z] ]]; then
-            key="shift-${char,,}"  # lowercase with shift
+        if [[ -n "${key_map[$character]:-}" ]]; then
+            key="${key_map[$character]}"
+        elif [[ "$character" =~ [A-Z] ]]; then
+            key="shift-${character,,}"  # lowercase with shift
         else
-            key="$char"
+            key="$character"
         fi
 
         commands+="sendkey $key"$'\n'
@@ -389,95 +441,81 @@ send_console_command() {
     sleep "$wait_after"
 }
 
-# wait for VM to boot by watching serial log for login prompt
-wait_for_boot() {
-    local max_attempts=90
-    local attempt=0
-    local serial_log="$WORK_DIR/serial.log"
+# the forwarded port opens as soon as QEMU starts, so wait for the guest's sshd itself:
+# it answers with a password prompt (sshpass exit code 5) once the live system is up
+wait_for_live_system() {
+    local deadline=$((SECONDS + 300))
+    local exit_code
 
-    print_info "Waiting for VM to boot (checking SSH port)..."
-
-    # first just wait for SSH port since Arch ISO starts sshd automatically
-    while [[ $attempt -lt $max_attempts ]]; do
-        if nc -z localhost "$SSH_PORT" 2>/dev/null; then
-            print_success "SSH port is open"
-            # wait additional time for the console to be fully ready
-            # SSH port opens before the login shell is ready
-            print_info "Waiting for console to be ready..."
-            sleep 15
+    print_info "Waiting for the live system's sshd..."
+    while [[ $SECONDS -lt $deadline ]]; do
+        exit_code=0
+        sshpass -p root ssh "${SSH_OPTIONS[@]}" -p "$SSH_PORT" root@localhost true \
+            &>/dev/null || exit_code=$?
+        if [[ $exit_code -eq 0 || $exit_code -eq 5 ]]; then
+            print_success "sshd is up"
             return 0
         fi
-        ((attempt++))
-        sleep 2
+        sleep 3
     done
 
-    print_warning "Timeout waiting for SSH port"
+    print_warning "Timeout waiting for sshd"
+    return 1
+}
+
+run_in_vm() {
+    sshpass -p root ssh "${SSH_OPTIONS[@]}" -p "$SSH_PORT" root@localhost "$@"
+}
+
+# set up root password via QEMU monitor sendkey on the autologin console
+setup_root_password() {
+    local attempt
+
+    print_info "Setting the root password on the console..."
+    for attempt in 1 2 3 4 5; do
+        send_console_command "echo root:root | chpasswd" 2
+        if run_in_vm true &>/dev/null; then
+            print_success "Root password set to 'root', SSH works"
+            return 0
+        fi
+        sleep 5
+    done
+
+    print_warning "Could not log in over SSH: set the root password on the console yourself"
     return 1
 }
 
 # expand cowspace for package installations
 expand_cowspace() {
-    print_info "Expanding cowspace for package installations..."
-
-    local ssh_opts="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=5"
-    if command -v sshpass &>/dev/null; then
-        sshpass -p root ssh $ssh_opts -p "$SSH_PORT" root@localhost \
-            "mount -o remount,size=2G /run/archiso/cowspace" 2>/dev/null && \
-            print_success "Cowspace expanded to 2G" || \
-            print_warning "Failed to expand cowspace - some packages may fail to install"
+    if run_in_vm "mount -o remount,size=2G /run/archiso/cowspace" 2>/dev/null; then
+        print_success "Cowspace expanded to 2G"
+    else
+        print_warning "Failed to expand cowspace - some packages may fail to install"
     fi
 }
 
-# set up root password via QEMU monitor sendkey
-setup_root_password() {
-    print_info "Setting up root password via console commands..."
-
-    # wait longer for the login shell to be fully ready after boot
-    # the ISO needs time to fully initialize
-    sleep 25
-
-    # set root password using chpasswd (same as Python implementation)
-    send_console_command "echo root:root | chpasswd" 1
-
-    print_success "Root password set to 'root'"
-}
-
-# verify SSH works
-verify_ssh() {
-    local max_attempts=5
-    local attempt=0
-
-    print_info "Verifying SSH connection..."
-
-    # check if sshpass is available
-    local use_sshpass=false
-    if command -v sshpass &>/dev/null; then
-        use_sshpass=true
+# the working tree, not the published repository: the demo shows the code as it is here
+copy_repository() {
+    print_info "Copying $REPOSITORY_ROOT to /root/arch_installer..."
+    if git -C "$REPOSITORY_ROOT" ls-files --cached --others --exclude-standard -z \
+        | tar -C "$REPOSITORY_ROOT" --null -T - -czf - \
+        | run_in_vm "mkdir -p /root/arch_installer && tar -xzf - -C /root/arch_installer"; then
+        print_success "Installer copied"
+    else
+        print_warning "Copying the installer failed"
+        return 1
     fi
 
-    while [[ $attempt -lt $max_attempts ]]; do
-        local ssh_result=0
-        if [[ "$use_sshpass" == "true" ]]; then
-            sshpass -p root ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-                   -o ConnectTimeout=5 -o PasswordAuthentication=yes -o PubkeyAuthentication=no \
-                   -p "$SSH_PORT" root@localhost "echo test" &>/dev/null || ssh_result=$?
-        else
-            ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-                   -o ConnectTimeout=5 -o BatchMode=yes \
-                   -p "$SSH_PORT" root@localhost "echo test" &>/dev/null || ssh_result=$?
-        fi
-
-        if [[ $ssh_result -eq 0 ]]; then
-            print_success "SSH is working"
-            return 0
-        fi
-        ((attempt++))
-        sleep 2
-    done
-
-    print_warning "SSH verification failed - you may need to set root password manually"
-    print_info "Try: sshpass -p root ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null root@localhost -p $SSH_PORT"
-    return 1
+    # an older ISO upgrades into package splits (libgcc out of gcc-libs) that conflict
+    # with its own files, so they are overwritten, as the QEMU tests do
+    print_info "Installing the installer's dependencies..."
+    if run_in_vm "pacman-key --init >/dev/null 2>&1; pacman -Sy --noconfirm --needed \
+        --overwrite '*' glibc python python-yaml python-cryptography python-cffi make" \
+        >/dev/null 2>&1; then
+        print_success "Dependencies installed"
+    else
+        print_warning "Installing the dependencies failed: run 'make deps' in the VM"
+    fi
 }
 
 # print connection info
@@ -498,9 +536,8 @@ print_connection_info() {
     echo "        password: root"
     if [[ "$USB_DISK" == "true" ]]; then
         echo ""
-        echo "  USB:  /dev/sda (${USB_DISK_SIZE_GB}GB) - use USB_BOOT_DEVICE=/dev/sda ISO_PATH=/dev/sr0 WIPE_METHOD=secure"
+        echo "  USB:  /dev/sda (${USB_DISK_SIZE_GB}GB) - USB boot drive /dev/sda, recovery ISO /dev/sr0, wipe method secure"
     fi
-    echo "Press Ctrl+C to stop the VM"
     echo ""
 }
 
@@ -509,36 +546,47 @@ main() {
     echo ""
 
     check_requirements
+    check_ssh_port
     check_iso
     setup_work_dir
 
     trap cleanup EXIT
 
-    local qemu_cmd
-    qemu_cmd=$(build_qemu_command)
+    local qemu_command_line
+    qemu_command_line=$(build_qemu_command)
 
     print_info "Starting QEMU..."
-    echo "Command: $qemu_cmd"
+    echo "Command: $qemu_command_line"
     echo ""
 
     # run QEMU (daemonizes itself)
-    eval "$qemu_cmd"
+    eval "$qemu_command_line"
 
     # wait for serial socket to be ready
     sleep 2
 
     print_connection_info
 
-    # wait for VM to boot and auto-setup SSH
-    if wait_for_boot; then
-        setup_root_password
-        if verify_ssh; then
+    if [[ "$BOOT_ISO" == "true" ]]; then
+        # prepare the live system: SSH, room for packages, the installer
+        if wait_for_live_system && setup_root_password; then
             expand_cowspace
+            if [[ "$COPY_REPOSITORY" == "true" ]]; then
+                copy_repository
+            fi
+            echo ""
+            print_info "In the VNC console: cd /root/arch_installer && make run"
         fi
+    else
+        print_info "Starting the installed system: the LUKS passphrase prompt is on the VNC console"
     fi
 
     echo ""
-    print_success "VM is running. Press Enter to stop and clean up, or Ctrl+C."
+    if [[ "$KEEP_FILES" == "true" ]]; then
+        print_success "VM is running. Press Enter to stop it (files are kept), or Ctrl+C."
+    else
+        print_success "VM is running. Press Enter to stop it and delete its files, or Ctrl+C."
+    fi
     echo ""
 
     # wait for user input

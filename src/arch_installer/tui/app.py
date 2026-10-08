@@ -110,14 +110,14 @@ class HardwareDetector:
         return parts[0], parts[1]
 
 
-def _collect(win: curses.window, config: InstallerConfig, runner: CommandRunner) -> Answers:
+def _collect(window: curses.window, config: InstallerConfig, runner: CommandRunner) -> Answers:
     init_colors()
     curses.curs_set(0)
     hardware = HardwareDetector(runner)
     answers = Answers(config=config)
 
     info_screen(
-        win,
+        window,
         "DALI - Declarative Arch Linux Installer",
         "Interactive setup.\n\n"
         "Each screen starts on the value inherited from config.yaml and the\n"
@@ -128,7 +128,7 @@ def _collect(win: curses.window, config: InstallerConfig, runner: CommandRunner)
 
     migration = (
         radio_menu(
-            win,
+            window,
             "Installation Type",
             [
                 MenuOption("fresh", "Fresh installation"),
@@ -140,54 +140,54 @@ def _collect(win: curses.window, config: InstallerConfig, runner: CommandRunner)
     )
     answers.config = replace(answers.config, migration=replace(config.migration, enabled=migration))
 
-    answers.config = _prompt_system(win, answers.config)
+    answers.config = _prompt_system(window, answers.config)
 
     credentials = config.credentials
     answers.luks_password = _prompt_password(
-        win, "Password Setup", "LUKS encryption password", credentials.luks_password
+        window, "Password Setup", "LUKS encryption password", credentials.luks_password
     )
     answers.user_password = _prompt_password(
-        win, "Password Setup", "User account password", credentials.user_password
+        window, "Password Setup", "User account password", credentials.user_password
     )
 
-    answers.config = _prompt_storage(win, answers.config, hardware)
-    answers.config = _prompt_usb_boot(win, answers.config)
-    answers.config = _prompt_hardware(win, answers.config)
-    answers.selected_desktops = _prompt_desktops(win, answers.config)
-    answers.config = _prompt_swap(win, answers.config)
-    answers.config = _prompt_features(win, answers.config)
+    answers.config = _prompt_storage(window, answers.config, hardware)
+    answers.config = _prompt_usb_boot(window, answers.config)
+    answers.config = _prompt_hardware(window, answers.config)
+    answers.selected_desktops = _prompt_desktops(window, answers.config)
+    answers.config = _prompt_swap(window, answers.config)
+    answers.config = _prompt_features(window, answers.config)
 
     if migration:
         answers.source_luks_password = _prompt_password(
-            win,
+            window,
             "Migration - Source Disk",
             "Source disk LUKS password",
             credentials.source_luks_password,
             confirm_new=False,
         )
 
-    if not confirm_screen(win, "Configuration Summary", _summary(answers)):
+    if not confirm_screen(window, "Configuration Summary", _summary(answers)):
         raise KeyboardInterrupt("installation cancelled by user")
     return answers
 
 
-def _prompt_system(win: curses.window, config: InstallerConfig) -> InstallerConfig:
+def _prompt_system(window: curses.window, config: InstallerConfig) -> InstallerConfig:
     system = config.system
     hostname = text_input(
-        win, "System Configuration", "Hostname:", inherited=system.hostname, required=True
+        window, "System Configuration", "Hostname:", inherited=system.hostname, required=True
     )
     username = text_input(
-        win, "System Configuration", "Username:", inherited=system.user.name, required=True
+        window, "System Configuration", "Username:", inherited=system.user.name, required=True
     )
     timezone = text_input(
-        win,
+        window,
         "System Configuration",
         "Timezone (e.g. Europe/Helsinki):",
         inherited=system.timezone,
         required=True,
     )
     keymap = (
-        text_input(win, "System Configuration", "Keymap:", inherited=system.locale.keymap)
+        text_input(window, "System Configuration", "Keymap:", inherited=system.locale.keymap)
         or system.locale.keymap
     )
     return replace(
@@ -204,11 +204,11 @@ def _prompt_system(win: curses.window, config: InstallerConfig) -> InstallerConf
 
 # an inherited password is kept or replaced; it is never shown
 def _prompt_password(
-    win: curses.window, title: str, name: str, inherited: str, confirm_new: bool = True
+    window: curses.window, title: str, name: str, inherited: str, confirm_new: bool = True
 ) -> str:
     if inherited:
         choice = radio_menu(
-            win,
+            window,
             title,
             PASSWORD_OPTIONS,
             description=f"{name}: inherited from the encrypted secrets or the environment.",
@@ -216,12 +216,12 @@ def _prompt_password(
         if choice == KEEP_PASSWORD:
             return inherited
     if confirm_new:
-        return password_input_with_confirm(win, title, f"{name}:")
-    return text_input(win, title, f"{name}:", required=True, masked=True)
+        return password_input_with_confirm(window, title, f"{name}:")
+    return text_input(window, title, f"{name}:", required=True, masked=True)
 
 
 def _prompt_storage(
-    win: curses.window, config: InstallerConfig, hardware: HardwareDetector
+    window: curses.window, config: InstallerConfig, hardware: HardwareDetector
 ) -> InstallerConfig:
     storage = config.storage
     disks = hardware.list_disks()
@@ -230,7 +230,7 @@ def _prompt_storage(
             MenuOption(disk.path, f"{disk.path}  {disk.model}  ({disk.size})") for disk in disks
         ]
         target_disk = radio_menu(
-            win,
+            window,
             "Disk Selection",
             options,
             inherited_value=storage.target_disk,
@@ -238,7 +238,7 @@ def _prompt_storage(
         )
     else:
         target_disk = text_input(
-            win,
+            window,
             "Disk Selection",
             "Enter disk path (e.g. /dev/sda):",
             inherited=storage.target_disk,
@@ -246,7 +246,7 @@ def _prompt_storage(
         )
 
     wipe_method = WipeMethod(
-        radio_menu(win, "Disk Wipe Method", WIPE_OPTIONS, inherited_value=storage.wipe_method)
+        radio_menu(window, "Disk Wipe Method", WIPE_OPTIONS, inherited_value=storage.wipe_method)
     )
     return replace(
         config,
@@ -266,12 +266,12 @@ def _swap_label(size_mb: int) -> str:
     return f"{size_mb} MB"
 
 
-def _prompt_swap(win: curses.window, config: InstallerConfig) -> InstallerConfig:
+def _prompt_swap(window: curses.window, config: InstallerConfig) -> InstallerConfig:
     swap = config.storage.swap
     inherited_size_mb = swap.size_mb if swap.enabled else 0
     swap_size_mb = int(
         radio_menu(
-            win,
+            window,
             "Swap Size",
             swap_size_options(inherited_size_mb),
             inherited_value=str(inherited_size_mb),
@@ -290,10 +290,10 @@ def _prompt_swap(win: curses.window, config: InstallerConfig) -> InstallerConfig
     )
 
 
-def _prompt_usb_boot(win: curses.window, config: InstallerConfig) -> InstallerConfig:
+def _prompt_usb_boot(window: curses.window, config: InstallerConfig) -> InstallerConfig:
     enabled = (
         radio_menu(
-            win,
+            window,
             "USB Boot Drive",
             [
                 MenuOption("no", "No - boot from the internal disk"),
@@ -307,7 +307,7 @@ def _prompt_usb_boot(win: curses.window, config: InstallerConfig) -> InstallerCo
     device = config.usb_boot.device
     if enabled:
         device = text_input(
-            win,
+            window,
             "USB Boot Device",
             "Enter USB device path (e.g. /dev/sdb):",
             inherited=device,
@@ -316,18 +316,18 @@ def _prompt_usb_boot(win: curses.window, config: InstallerConfig) -> InstallerCo
     return replace(config, usb_boot=replace(config.usb_boot, enabled=enabled, device=device))
 
 
-def _prompt_hardware(win: curses.window, config: InstallerConfig) -> InstallerConfig:
+def _prompt_hardware(window: curses.window, config: InstallerConfig) -> InstallerConfig:
     cpu_vendor = CpuVendor(
-        radio_menu(win, "CPU Vendor", CPU_OPTIONS, inherited_value=config.system.cpu_vendor)
+        radio_menu(window, "CPU Vendor", CPU_OPTIONS, inherited_value=config.system.cpu_vendor)
     )
     gpu_vendor = GpuVendor(
-        radio_menu(win, "GPU Vendor", GPU_OPTIONS, inherited_value=config.gpu.vendor)
+        radio_menu(window, "GPU Vendor", GPU_OPTIONS, inherited_value=config.gpu.vendor)
     )
     driver = config.gpu.driver
     if gpu_vendor == GpuVendor.NVIDIA:
         driver = GpuDriver(
             radio_menu(
-                win,
+                window,
                 "NVIDIA Driver",
                 NVIDIA_DRIVER_OPTIONS,
                 inherited_value=config.gpu.driver or GpuDriver.NVIDIA_DKMS,
@@ -342,9 +342,9 @@ def _prompt_hardware(win: curses.window, config: InstallerConfig) -> InstallerCo
     )
 
 
-def _prompt_desktops(win: curses.window, config: InstallerConfig) -> list[str]:
+def _prompt_desktops(window: curses.window, config: InstallerConfig) -> list[str]:
     return checkbox_menu(
-        win,
+        window,
         "Desktop Environments",
         DESKTOP_OPTIONS,
         inherited_values=[str(desktop) for desktop in config.packages.desktops_to_install],
@@ -352,7 +352,7 @@ def _prompt_desktops(win: curses.window, config: InstallerConfig) -> list[str]:
     )
 
 
-def _prompt_features(win: curses.window, config: InstallerConfig) -> InstallerConfig:
+def _prompt_features(window: curses.window, config: InstallerConfig) -> InstallerConfig:
     toggles = [
         ("hibernation", "Hibernation (needs swap)", config.storage.swap.hibernation),
         ("firewall", "Firewall (UFW)", config.firewall.enabled),
@@ -362,7 +362,7 @@ def _prompt_features(win: curses.window, config: InstallerConfig) -> InstallerCo
     ]
     chosen = dict(
         toggle_menu(
-            win, "Features", toggles, description="Toggle with Space, then Tab to continue:"
+            window, "Features", toggles, description="Toggle with Space, then Tab to continue:"
         )
     )
     swap_enabled = config.storage.swap.enabled

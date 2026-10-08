@@ -19,7 +19,7 @@ class RecordedCommand:
     raise_on_nonzero_exit: bool
     capture_output: bool
     env_variables: Mapping[str, str] | None
-    work_dir: str | None
+    working_directory: str | None
     input_data: str | None
     is_chroot: bool = False
     chroot_path: str | None = None
@@ -79,38 +79,38 @@ class FakeCommandRunner(CommandRunner):
         raise_on_nonzero_exit: bool = True,
         capture_output: bool = True,
         env_variables: Mapping[str, str] | None = None,
-        work_dir: str | None = None,
+        working_directory: str | None = None,
         input_data: str | None = None,
     ) -> CommandExecutionResult:
         """Execute (fake) a command and return configured result."""
-        cmd_str = command if isinstance(command, str) else " ".join(command)
+        command_text = command if isinstance(command, str) else " ".join(command)
 
         # Record the command
         self.recorded_commands.append(
             RecordedCommand(
-                command=cmd_str,
+                command=command_text,
                 raise_on_nonzero_exit=raise_on_nonzero_exit,
                 capture_output=capture_output,
                 env_variables=dict(env_variables) if env_variables else None,
-                work_dir=work_dir,
+                working_directory=working_directory,
                 input_data=input_data,
             )
         )
 
         # Check for custom handler
         for pattern, handler in self._handlers.items():
-            if pattern in cmd_str:
-                return handler(cmd_str)
+            if pattern in command_text:
+                return handler(command_text)
 
         # Find matching response
         exit_code, stdout, stderr = self._default_response
         for pattern, response in self._responses.items():
-            if pattern in cmd_str:
+            if pattern in command_text:
                 exit_code, stdout, stderr = response
                 break
 
         result = CommandExecutionResult(
-            command=cmd_str,
+            command=command_text,
             exit_code=exit_code,
             stdout=stdout,
             stderr=stderr,
@@ -118,7 +118,7 @@ class FakeCommandRunner(CommandRunner):
 
         if raise_on_nonzero_exit and not result.success:
             raise CommandError(
-                command=cmd_str,
+                command=command_text,
                 exit_code=exit_code,
                 stdout=stdout,
                 stderr=stderr,
@@ -137,17 +137,17 @@ class FakeCommandRunner(CommandRunner):
         input_data: str | None = None,
     ) -> CommandExecutionResult:
         """Execute (fake) a chroot command."""
-        cmd_str = command if isinstance(command, str) else " ".join(command)
-        full_cmd = f"arch-chroot {chroot_path} {cmd_str}"
+        command_text = command if isinstance(command, str) else " ".join(command)
+        full_command = f"arch-chroot {chroot_path} {command_text}"
 
         # Record as chroot command
         self.recorded_commands.append(
             RecordedCommand(
-                command=full_cmd,
+                command=full_command,
                 raise_on_nonzero_exit=raise_on_nonzero_exit,
                 capture_output=capture_output,
                 env_variables=dict(env_variables) if env_variables else None,
-                work_dir=None,
+                working_directory=None,
                 input_data=input_data,
                 is_chroot=True,
                 chroot_path=chroot_path,
@@ -156,18 +156,18 @@ class FakeCommandRunner(CommandRunner):
 
         # Check for custom handler
         for pattern, handler in self._handlers.items():
-            if pattern in cmd_str or pattern in full_cmd:
-                return handler(full_cmd)
+            if pattern in command_text or pattern in full_command:
+                return handler(full_command)
 
         # Find matching response (check both command and full chroot command)
         exit_code, stdout, stderr = self._default_response
         for pattern, response in self._responses.items():
-            if pattern in cmd_str or pattern in full_cmd:
+            if pattern in command_text or pattern in full_command:
                 exit_code, stdout, stderr = response
                 break
 
         result = CommandExecutionResult(
-            command=full_cmd,
+            command=full_command,
             exit_code=exit_code,
             stdout=stdout,
             stderr=stderr,
@@ -175,7 +175,7 @@ class FakeCommandRunner(CommandRunner):
 
         if raise_on_nonzero_exit and not result.success:
             raise CommandError(
-                command=full_cmd,
+                command=full_command,
                 exit_code=exit_code,
                 stdout=stdout,
                 stderr=stderr,

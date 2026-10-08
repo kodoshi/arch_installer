@@ -5,7 +5,7 @@ import pytest
 from arch_installer.config.models import Credentials, MigrationConfig
 from arch_installer.errors import MigrationError
 from arch_installer.executors.migration import (
-    STAGING_DIR,
+    STAGING_DIRECTORY,
     MigrationRestoreExecutor,
     MigrationStagingExecutor,
 )
@@ -51,10 +51,10 @@ class TestMigrationStaging:
     def test_stages_home_and_secure_boot_keys(self, existing_install_runner):
         MigrationStagingExecutor(staging_config(), existing_install_runner).execute()
         existing_install_runner.assert_command_called(
-            f"cp -a /tmp/old-system/@home/. {STAGING_DIR}/home/"
+            f"cp -a /tmp/old-system/@home/. {STAGING_DIRECTORY}/home/"
         )
         existing_install_runner.assert_command_called(
-            f"cp -a /tmp/old-system/@/var/lib/sbctl/. {STAGING_DIR}/sbctl/"
+            f"cp -a /tmp/old-system/@/var/lib/sbctl/. {STAGING_DIRECTORY}/sbctl/"
         )
 
     def test_raises_when_no_luks_partition_found(self, fake_runner):
@@ -66,7 +66,7 @@ class TestMigrationStaging:
 
 class TestMigrationRestore:
     def test_restores_staged_directories(self, fake_runner):
-        fake_runner.set_response(f"test -d {STAGING_DIR}", exit_code=0)
+        fake_runner.set_response(f"test -d {STAGING_DIRECTORY}", exit_code=0)
         fake_runner.set_response("test -d", exit_code=0)
         MigrationRestoreExecutor(staging_config(), fake_runner).execute()
         assert any("cp -a" in command for command in fake_runner.get_commands())

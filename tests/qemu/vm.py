@@ -90,7 +90,7 @@ class QemuConfig:
 
 @dataclass
 class QemuPaths:
-    work_dir: Path
+    working_directory: Path
     disk_image: Path
     extra_disk_images: list[Path]
     ovmf_vars: Path  # writable copy of OVMF_VARS
@@ -188,24 +188,24 @@ class QemuVm:
         self.qemu_binary = find_qemu_binary(self.config.architecture)
         self.sshpass_binary = find_sshpass_binary()
 
-    def setup(self, work_dir: Path | None = None) -> QemuPaths:
-        if work_dir is None:
-            work_dir = Path(tempfile.mkdtemp(prefix="qemu-arch-test-"))
-        work_dir.mkdir(parents=True, exist_ok=True)
+    def setup(self, working_directory: Path | None = None) -> QemuPaths:
+        if working_directory is None:
+            working_directory = Path(tempfile.mkdtemp(prefix="qemu-arch-test-"))
+        working_directory.mkdir(parents=True, exist_ok=True)
 
         paths = QemuPaths(
-            work_dir=work_dir,
-            disk_image=work_dir / "disk.qcow2",
+            working_directory=working_directory,
+            disk_image=working_directory / "disk.qcow2",
             extra_disk_images=[],
-            ovmf_vars=work_dir / "OVMF_VARS.fd",
-            serial_log=work_dir / "serial.log",
-            pid_file=work_dir / "qemu.pid",
-            monitor_socket=work_dir / "monitor.sock",
+            ovmf_vars=working_directory / "OVMF_VARS.fd",
+            serial_log=working_directory / "serial.log",
+            pid_file=working_directory / "qemu.pid",
+            monitor_socket=working_directory / "monitor.sock",
         )
 
         self._create_disk_image(paths.disk_image, self.config.disk_size_gb)
         for index, size_gb in enumerate(self.config.extra_disks_gb):
-            extra_path = work_dir / f"disk-extra-{index}.qcow2"
+            extra_path = working_directory / f"disk-extra-{index}.qcow2"
             self._create_disk_image(extra_path, size_gb)
             paths.extra_disk_images.append(extra_path)
 
@@ -232,50 +232,50 @@ class QemuVm:
         paths = self._require_paths()
         use_acceleration = self._use_acceleration()
 
-        cmd = [str(self.qemu_binary)]
+        command = [str(self.qemu_binary)]
         if self._use_hvf():
-            cmd += ["-machine", "q35,smm=on,accel=hvf"]
+            command += ["-machine", "q35,smm=on,accel=hvf"]
         elif use_acceleration:
-            cmd += ["-machine", "q35,smm=on", "-enable-kvm"]
+            command += ["-machine", "q35,smm=on", "-enable-kvm"]
         else:
             # software emulation (TCG), e.g. x86_64 guests on Apple Silicon
-            cmd += ["-machine", "q35,smm=on,accel=tcg"]
+            command += ["-machine", "q35,smm=on,accel=tcg"]
 
-        cmd += ["-cpu", "host" if use_acceleration else "qemu64"]
-        cmd += ["-smp", str(self.config.cpus), "-m", str(self.config.memory_mb)]
-        cmd += ["-drive", f"if=pflash,format=raw,readonly=on,file={self.ovmf.code}"]
-        cmd += ["-drive", f"if=pflash,format=raw,file={paths.ovmf_vars}"]
+        command += ["-cpu", "host" if use_acceleration else "qemu64"]
+        command += ["-smp", str(self.config.cpus), "-m", str(self.config.memory_mb)]
+        command += ["-drive", f"if=pflash,format=raw,readonly=on,file={self.ovmf.code}"]
+        command += ["-drive", f"if=pflash,format=raw,file={paths.ovmf_vars}"]
         if self.config.secure_boot != SecureBootMode.DISABLED:
-            cmd += ["-global", "driver=cfi.pflash01,property=secure,value=on"]
+            command += ["-global", "driver=cfi.pflash01,property=secure,value=on"]
 
         for disk_image in [paths.disk_image, *paths.extra_disk_images]:
-            cmd += ["-drive", f"file={disk_image},format=qcow2,if=virtio"]
+            command += ["-drive", f"file={disk_image},format=qcow2,if=virtio"]
 
         if iso_path is not None:
-            cmd += ["-cdrom", str(iso_path), "-boot", "d"]
+            command += ["-cdrom", str(iso_path), "-boot", "d"]
 
-        cmd += [
+        command += [
             "-netdev",
             f"user,id=net0,hostfwd=tcp::{self.config.ssh_port}-:22",
             "-device",
             "virtio-net-pci,netdev=net0",
         ]
         # serial console on a socket: logged to a file and writable for the LUKS prompt
-        cmd += [
+        command += [
             "-chardev",
-            f"socket,id=serial0,path={paths.work_dir}/serial.sock,server=on,wait=off,"
+            f"socket,id=serial0,path={paths.working_directory}/serial.sock,server=on,wait=off,"
             f"logfile={paths.serial_log}",
             "-serial",
             "chardev:serial0",
         ]
-        cmd += ["-monitor", f"unix:{paths.monitor_socket},server,nowait"]
+        command += ["-monitor", f"unix:{paths.monitor_socket},server,nowait"]
         if self.config.headless:
             # VNC instead of no display at all, so monitor sendkey still reaches a console
-            cmd += ["-display", "none", "-vnc", "127.0.0.1:99,to=199"]
+            command += ["-display", "none", "-vnc", "127.0.0.1:99,to=199"]
         else:
-            cmd += ["-display", "sdl"]
-        cmd += ["-pidfile", str(paths.pid_file), "-daemonize"]
-        return cmd
+            command += ["-display", "sdl"]
+        command += ["-pidfile", str(paths.pid_file), "-daemonize"]
+        return command
 
     def _use_hvf(self) -> bool:
         # Hypervisor.framework only accelerates guests of the host's own architecture
@@ -387,7 +387,7 @@ class QemuVm:
         return False
 
     def send_console_text(self, text: str, press_enter: bool = True) -> None:
-        serial_socket_path = self._require_paths().work_dir / "serial.sock"
+        serial_socket_path = self._require_paths().working_directory / "serial.sock"
         if not serial_socket_path.exists():
             raise QemuError(f"Serial socket not found: {serial_socket_path}")
 
@@ -440,7 +440,7 @@ class QemuVm:
         password: str = "root",
         timeout: int = 60,
     ) -> tuple[int, str, str]:
-        ssh_cmd = [
+        ssh_command = [
             str(self.sshpass_binary),
             "-p",
             password,
@@ -450,13 +450,13 @@ class QemuVm:
             command,
         ]
         try:
-            result = subprocess.run(ssh_cmd, capture_output=True, text=True, timeout=timeout)
+            result = subprocess.run(ssh_command, capture_output=True, text=True, timeout=timeout)
             return result.returncode, result.stdout, result.stderr
         except subprocess.TimeoutExpired:
             return 124, "", "SSH command timed out"
 
     def _scp(self, local_path: Path, remote_path: str, user: str, password: str) -> None:
-        scp_cmd = [
+        scp_command = [
             str(self.sshpass_binary),
             "-p",
             password,
@@ -466,14 +466,14 @@ class QemuVm:
             str(local_path),
             f"{user}@127.0.0.1:{remote_path}",
         ]
-        subprocess.run(scp_cmd, check=True, capture_output=True)
+        subprocess.run(scp_command, check=True, capture_output=True)
 
     def copy_file_to_vm(
         self, local_path: Path, remote_path: str, user: str = "root", password: str = "root"
     ) -> None:
         self._scp(local_path, remote_path, user, password)
 
-    def copy_dir_to_vm(
+    def copy_directory_to_vm(
         self, local_path: Path, remote_path: str, user: str = "root", password: str = "root"
     ) -> None:
         self._scp(local_path, remote_path, user, password)
@@ -533,13 +533,13 @@ class QemuVm:
         self.kill()
         time.sleep(1)  # let the OS release the forwarded ports
         if self.paths is not None:
-            shutil.rmtree(self.paths.work_dir, ignore_errors=True)
+            shutil.rmtree(self.paths.working_directory, ignore_errors=True)
             self.paths = None
 
     def __enter__(self) -> "QemuVm":
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+    def __exit__(self, exception_type, exception, exception_traceback) -> None:
         self.cleanup()
 
 

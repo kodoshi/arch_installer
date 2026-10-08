@@ -7,7 +7,7 @@ title Installer Phase Flow
 start
 
 partition "Phase 1: Configuration Resolution (cli.py)" {
-    :Model defaults (config/models.py)\n\nconfig/config.yaml, encrypted passwords unlocked\nwith ARCH_INSTALLER_SECRETS_KEY\n\nEnvironment variables (EnvVar);
+    :Model defaults (config/models.py)\n\nconfig/config.yaml, encrypted passwords unlocked\nwith ARCH_INSTALLER_SECRETS_KEY\n\nEnvironment variables (EnvVariable);
     if (NON_INTERACTIVE?) then (no)
         :TUI: every screen starts on the inherited value,\nEnter keeps it, any other choice overrides it;
     else (yes)

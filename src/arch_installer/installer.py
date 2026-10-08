@@ -109,11 +109,11 @@ class Installer:
         logger.info("Sections: %s", ", ".join(features))
 
     def _install_utility_scripts(self) -> None:
-        scripts_dir = f"{TARGET_ROOT}/usr/local/bin"
-        self._runner.run(f"mkdir -p {scripts_dir}")
+        scripts_directory = f"{TARGET_ROOT}/usr/local/bin"
+        self._runner.run(f"mkdir -p {scripts_directory}")
         for source, name in UTILITY_SCRIPTS:
             if file_exists(self._runner, source):
-                self._runner.run(f"install -m 755 {source} {scripts_dir}/{name}")
+                self._runner.run(f"install -m 755 {source} {scripts_directory}/{name}")
 
     def _write_final_config(self) -> None:
         username = self._config.system.user.name

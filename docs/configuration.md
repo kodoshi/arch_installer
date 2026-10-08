@@ -43,11 +43,27 @@ packages:
 Passwords can be stored encrypted (AES-256-GCM) in config.yaml, so an installation needs only the key:
 
 ```bash
-make encrypt-secrets ARCH_INSTALLER_SECRETS_KEY=your-key LUKS_PASSWORD=p1 USER_PASSWORD=p2
-ARCH_INSTALLER_SECRETS_KEY=your-key make decrypt-secrets
+make encrypt-secrets   # asks for the key (twice) and both passwords, without echo
+make decrypt-secrets   # asks for the key and prints the passwords
 ```
 
-`encrypt-secrets` edits only the two `secrets` lines and keeps the rest of the file, comments included. Add `NO_WRITE=true` to print the encrypted values without touching the file, and `CONFIG_PATH=...` to target another file.
+`encrypt-secrets` edits only the two `secrets` lines and keeps the rest of the file, comments included. Pressing Enter at a password prompt keeps the stored one, which is only allowed when it was encrypted with the same key. Add `NO_WRITE=true` to print the encrypted values without touching the file, and `CONFIG_PATH=...` to target another file.
+
+### Keeping Secrets Out of ps and Shell History
+
+A secret typed into a command line leaks twice: `/proc/<pid>/cmdline` is readable by every user (that is what `ps` shows), and the line is saved in your shell history. A process environment (`/proc/<pid>/environ`) is readable only by its owner and root, so environment variables are safe as long as their value is not typed on the command line.
+
+- The Makefile refuses `ARCH_INSTALLER_SECRETS_KEY`, `LUKS_PASSWORD`, `USER_PASSWORD` and `SOURCE_LUKS_PASSWORD` given as make arguments (`make install LUKS_PASSWORD=...`).
+- `make encrypt-secrets`, `make decrypt-secrets` and an interactive `make install` ask for what they need, without echo.
+- For non-interactive installs, read the value without echo into the environment, or take it from a password manager:
+
+```bash
+read -rsp 'Secrets key: ' ARCH_INSTALLER_SECRETS_KEY && export ARCH_INSTALLER_SECRETS_KEY
+export ARCH_INSTALLER_SECRETS_KEY="$(keepassxc-cli show -s -a Password vault.kdbx dali)"
+NON_INTERACTIVE=true make install
+```
+
+The installer itself hands every password to `cryptsetup` and `chpasswd` on stdin, never as an argument, and does not log it.
 
 ## Interactive Prompts
 
@@ -374,7 +390,7 @@ Dotfiles sync is not part of config.yaml: the installed `dotfiles-sync` tool kee
 
 ## Environment Variables
 
-Every setting below can be given as an environment variable for automated or non-interactive installations. A variable that is set overrides config.yaml; the TUI then shows it as the inherited value. The names are defined in one place, the `EnvVar` enum in `config/environment.py`.
+Every setting below can be given as an environment variable for automated or non-interactive installations. A variable that is set overrides config.yaml; the TUI then shows it as the inherited value. The names are defined in one place, the `EnvVariable` enum in `config/environment.py`.
 
 ### Core Installation Variables
 

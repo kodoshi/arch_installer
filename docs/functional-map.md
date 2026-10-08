@@ -1,6 +1,6 @@
 # DALI (Declarative ArchLinux Installer) — Comprehensive Functional Map
 
-> Module inventory, test tables and import graphs are generated from the code (Python AST); the overview and data flow are written by hand. Total: ~12,644 lines (4,458 source, 5,602 tests, 2,584 shell scripts).
+> Module inventory, test tables and import graphs are generated from the code (Python AST); the overview and data flow are written by hand. Total: ~12,809 lines (4,521 source, 5,704 tests, 2,584 shell scripts).
 
 ---
 
@@ -49,7 +49,7 @@ DALI is a **declarative, deterministic, idempotent** Arch Linux installer that:
 
 - Python 3.13+, Poetry, PyYAML, cryptography (AES-256-GCM for secrets)
 - Dev: pytest, pytest-cov, pytest-xdist, pytest-timeout, ruff, docker (unused)
-- 4,458 lines of source code, 5,602 lines of tests, 2,584 lines of shell scripts
+- 4,521 lines of source code, 5,704 lines of tests, 2,584 lines of shell scripts
 
 ---
 
@@ -87,7 +87,7 @@ Empty.
 
 ---
 
-#### `cli.py` (189 lines)
+#### `cli.py` (244 lines)
 
 Command-line entry points: `arch-installer`, `usb-init`, `usb-backup`, and the secrets helpers behind `make encrypt-secrets` / `make decrypt-secrets`.
 
@@ -102,8 +102,11 @@ Command-line entry points: `arch-installer`, `usb-init`, `usb-backup`, and the s
 | `_install()` | function | `_install(environment) -> None` |
 | `_usb_init()` | function | `_usb_init(environment) -> None` |
 | `_usb_backup()` | function | `_usb_backup(environment) -> None` |
-| `_required_secrets_key()` | function | `_required_secrets_key(environment) -> str` |
+| `_ask_secret()` | function | `_ask_secret(label, confirm) -> str` |
+| `_secret_from_environment_or_prompt()` | function | `_secret_from_environment_or_prompt(environment, variable, label, confirm) -> str` |
+| `_required_secrets_key()` | function | `_required_secrets_key(environment, confirm) -> str` |
 | `_encrypt_if_given()` | function | `_encrypt_if_given(password, secrets_key) -> str` |
+| `_refuse_mixed_keys()` | function | `_refuse_mixed_keys(config_path, secrets, secrets_key) -> None` |
 | `_encrypt_secrets()` | function | `_encrypt_secrets(environment) -> None` |
 | `_decrypt_secrets()` | function | `_decrypt_secrets(environment) -> None` |
 | `main()` | function | `main() -> int` |
@@ -160,13 +163,13 @@ Empty.
 
 ---
 
-#### `config/environment.py` (203 lines)
+#### `config/environment.py` (208 lines)
 
 Environment variables: their names, their parsing, and the settings they override.
 
 | Name | Kind | Details |
 | ---- | ---- | ------- |
-| `EnvVar` | enum | `CONFIG_PATH`, `NON_INTERACTIVE`, `VERBOSE`, `NO_WRITE`, `SECRETS_KEY`, `LUKS_PASSWORD`, `USER_PASSWORD`, `SOURCE_LUKS_PASSWORD`, `TARGET_DISK`, `WIPE_METHOD`, `SWAP_SIZE_MB`, `SKIP_SWAP`, `ENABLE_HIBERNATION`, `ENABLE_SNAPSHOT_BOOT`, `ENABLE_FIREWALL`, `ENABLE_DOCKER`, `ENABLE_NOTIFICATIONS`, `ENABLE_MIGRATION`, `ENABLE_USB_BOOT`, `USB_BOOT_DEVICE`, `ISO_PATH`, `BACKUP_CATEGORIES`, `CPU_VENDOR`, `GPU_VENDOR`, `GPU_DRIVER`, `SELECTED_KERNELS`, `SELECTED_DESKTOPS` |
+| `EnvVariable` | enum | `CONFIG_PATH`, `NON_INTERACTIVE`, `VERBOSE`, `NO_WRITE`, `SECRETS_KEY`, `LUKS_PASSWORD`, `USER_PASSWORD`, `SOURCE_LUKS_PASSWORD`, `TARGET_DISK`, `WIPE_METHOD`, `SWAP_SIZE_MB`, `SKIP_SWAP`, `ENABLE_HIBERNATION`, `ENABLE_SNAPSHOT_BOOT`, `ENABLE_FIREWALL`, `ENABLE_DOCKER`, `ENABLE_NOTIFICATIONS`, `ENABLE_MIGRATION`, `ENABLE_USB_BOOT`, `USB_BOOT_DEVICE`, `ISO_PATH`, `BACKUP_CATEGORIES`, `CPU_VENDOR`, `GPU_VENDOR`, `GPU_DRIVER`, `SELECTED_KERNELS`, `SELECTED_DESKTOPS` |
 | `Environment` | class | `is_set()`, `text()`, `flag()`, `number()`, `choice()`, `choices()`, `names()`, `override()`, `_raw()`, `_parse_choice()` |
 | `_split_list()` | function | `_split_list(raw) -> tuple[str, ...]` |
 | `unlock_secrets()` | function | `unlock_secrets(config, secrets_key) -> InstallerConfig` |
@@ -177,7 +180,7 @@ Environment variables: their names, their parsing, and the settings they overrid
 
 ---
 
-#### `config/loader.py` (112 lines)
+#### `config/loader.py` (114 lines)
 
 Config.yaml loading: YAML mapping -> InstallerConfig.
 
@@ -338,10 +341,10 @@ The executor contract and the shell helpers executors share.
 | `is_mountpoint()` | function | `is_mountpoint(runner, path) -> bool` |
 | `path_exists()` | function | `path_exists(runner, path) -> bool` |
 | `file_exists()` | function | `file_exists(runner, path) -> bool` |
-| `dir_exists()` | function | `dir_exists(runner, path) -> bool` |
+| `directory_exists()` | function | `directory_exists(runner, path) -> bool` |
 | `write_file()` | function | `write_file(runner, path, content) -> None` |
 | `detect_luks_uuid()` | function | `detect_luks_uuid(runner, root_partition) -> str | None` |
-| constants | - | `TARGET_ROOT`, `TARGET_EFI`, `SBCTL_DIR`, `SBCTL_LEGACY_DIR`, `SBCTL_PK_KEY`, `SBCTL_DB_KEY` |
+| constants | - | `TARGET_ROOT`, `TARGET_EFI`, `SBCTL_DIRECTORY`, `SBCTL_LEGACY_DIRECTORY`, `SBCTL_PK_KEY`, `SBCTL_DB_KEY` |
 
 **Imports from project:** `config.models`, `core.command`  
 **Imported by:** `executors.boot`, `executors.docker`, `executors.firewall`, `executors.gpu`, `executors.migration`, `executors.mirrors`, `executors.packages`, `executors.snapper`, `executors.storage`, `executors.system`, `executors.usb_backup`, `executors.usb_boot`, `installer`, `tests/unit/test_installer`
@@ -363,7 +366,7 @@ Initramfs and unified kernel images (mkinitcpio), Secure Boot keys and systemd-b
 | `uki_variants()` | function | `uki_variants(config) -> tuple[UkiVariantConfig, ...]` |
 | `UkiExecutor` | class (Executor) | `execute()`, `_swapfile_resume_offset()`, `_prepare_secure_boot()`, `_is_in_setup_mode()`, `_enroll_keys()`, `_sign_ukis()` |
 | `BootloaderExecutor` | class (Executor) | `execute()` |
-| constants | - | `UKI_DIR`, `DEFAULT_VARIANT`, `BOOTLOADER_BINARIES` |
+| constants | - | `UKI_DIRECTORY`, `DEFAULT_VARIANT`, `BOOTLOADER_BINARIES` |
 
 **Imports from project:** `config.models`, `executors.base`, `executors.gpu`  
 **Imported by:** `installer`, `tests/unit/test_boot`
@@ -422,10 +425,10 @@ Migration from an existing encrypted btrfs Arch install, around the disk wipe.
 | Name | Kind | Details |
 | ---- | ---- | ------- |
 | `path_in_old_root()` | function | `path_in_old_root(path) -> str` |
-| `ExistingInstallInfo` | dataclass | fields: `disk`, `root_partition`, `home_subvolume`, `home_size_mb`, `secure_boot_dir` |
-| `MigrationStagingExecutor` | class (Executor) | `execute()`, `_find_luks_partition()`, `_open_and_mount()`, `_unmount_and_close()`, `_inspect_mounted_system()`, `_find_secure_boot_dir()`, `_ensure_staging_space()`, `_copy_to_staging()`, `_copy_into_staging()`, `_size_mb()` |
+| `ExistingInstallInfo` | dataclass | fields: `disk`, `root_partition`, `home_subvolume`, `home_size_mb`, `secure_boot_directory` |
+| `MigrationStagingExecutor` | class (Executor) | `execute()`, `_find_luks_partition()`, `_open_and_mount()`, `_unmount_and_close()`, `_inspect_mounted_system()`, `_find_secure_boot_directory()`, `_ensure_staging_space()`, `_copy_to_staging()`, `_copy_into_staging()`, `_size_mb()` |
 | `MigrationRestoreExecutor` | class (Executor) | `execute()`, `_report_restored_data()` |
-| constants | - | `STAGING_DIR`, `OLD_MOUNT_DIR`, `OLD_MAPPER_NAME`, `STAGING_HEADROOM_MB` |
+| constants | - | `STAGING_DIRECTORY`, `OLD_MOUNT_DIRECTORY`, `OLD_MAPPER_NAME`, `STAGING_HEADROOM_MB` |
 
 **Imports from project:** `errors`, `executors.base`  
 **Imported by:** `installer`, `tests/unit/test_installer`, `tests/unit/test_migration`
@@ -511,7 +514,7 @@ Hostname, timezone, locales, console keymap and the user account.
 
 ---
 
-#### `executors/usb_backup.py` (187 lines)
+#### `executors/usb_backup.py` (188 lines)
 
 Backup of dotfiles, password databases, browser profiles and system config to the backup partition of a USB drive, plus the package list and config.yaml of this machine.
 
@@ -520,7 +523,7 @@ Backup of dotfiles, password databases, browser profiles and system config to th
 | `BackupManifest` | dataclass | fields: `timestamp`, `hostname`, `categories`, `package_count`, `items_backed_up` |
 | `package_catalog()` | function | `package_catalog(package_names) -> str` |
 | `UsbBackupExecutor` | class (Executor) | `execute()`, `_copy_items()`, `_copy_item()`, `_explicitly_installed_packages()`, `_write_config_exports()`, `_expand_home()`, `_command_output()` |
-| constants | - | `BACKUP_PARTITION_NUMBER`, `BACKUP_MOUNT`, `CUSTOM_ITEMS_DIR`, `BACKUP_ITEMS` |
+| constants | - | `BACKUP_PARTITION_NUMBER`, `BACKUP_MOUNT`, `CUSTOM_ITEMS_DIRECTORY`, `BACKUP_ITEMS` |
 
 **Imports from project:** `config.models`, `errors`, `executors.base`  
 **Imported by:** `cli`, `tests/unit/test_usb_backup`
@@ -562,17 +565,17 @@ Interactive installation setup.
 | `DiskInfo` | dataclass | fields: `path`, `model`, `size` |
 | `Answers` | dataclass | fields: `config`, `luks_password`, `user_password`, `source_luks_password`, `selected_desktops` |
 | `HardwareDetector` | class | `list_disks()`, `_disk_details()` |
-| `_collect()` | function | `_collect(win, config, runner) -> Answers` |
-| `_prompt_system()` | function | `_prompt_system(win, config) -> InstallerConfig` |
-| `_prompt_password()` | function | `_prompt_password(win, title, name, inherited, confirm_new) -> str` |
-| `_prompt_storage()` | function | `_prompt_storage(win, config, hardware) -> InstallerConfig` |
+| `_collect()` | function | `_collect(window, config, runner) -> Answers` |
+| `_prompt_system()` | function | `_prompt_system(window, config) -> InstallerConfig` |
+| `_prompt_password()` | function | `_prompt_password(window, title, name, inherited, confirm_new) -> str` |
+| `_prompt_storage()` | function | `_prompt_storage(window, config, hardware) -> InstallerConfig` |
 | `swap_size_options()` | function | `swap_size_options(inherited_size_mb) -> list[MenuOption]` |
 | `_swap_label()` | function | `_swap_label(size_mb) -> str` |
-| `_prompt_swap()` | function | `_prompt_swap(win, config) -> InstallerConfig` |
-| `_prompt_usb_boot()` | function | `_prompt_usb_boot(win, config) -> InstallerConfig` |
-| `_prompt_hardware()` | function | `_prompt_hardware(win, config) -> InstallerConfig` |
-| `_prompt_desktops()` | function | `_prompt_desktops(win, config) -> list[str]` |
-| `_prompt_features()` | function | `_prompt_features(win, config) -> InstallerConfig` |
+| `_prompt_swap()` | function | `_prompt_swap(window, config) -> InstallerConfig` |
+| `_prompt_usb_boot()` | function | `_prompt_usb_boot(window, config) -> InstallerConfig` |
+| `_prompt_hardware()` | function | `_prompt_hardware(window, config) -> InstallerConfig` |
+| `_prompt_desktops()` | function | `_prompt_desktops(window, config) -> list[str]` |
+| `_prompt_features()` | function | `_prompt_features(window, config) -> InstallerConfig` |
 | `_summary()` | function | `_summary(answers) -> list[tuple[str, str]]` |
 | `_apply_answers()` | function | `_apply_answers(answers) -> InstallerConfig` |
 | `run_tui_setup()` | function | `run_tui_setup(config, runner) -> InstallerConfig` |
@@ -591,20 +594,20 @@ Curses widget primitives for the TUI installer.
 | ---- | ---- | ------- |
 | `MenuOption` | dataclass | fields: `value`, `label` |
 | `init_colors()` | function | `init_colors() -> None` |
-| `_draw_title()` | function | `_draw_title(win, title) -> None` |
-| `_draw_help()` | function | `_draw_help(win, help_text) -> None` |
+| `_draw_title()` | function | `_draw_title(window, title) -> None` |
+| `_draw_help()` | function | `_draw_help(window, help_text) -> None` |
 | `_tagged()` | function | `_tagged(label, is_inherited) -> str` |
-| `radio_menu()` | function | `radio_menu(win, title, options, inherited_value, description) -> str` |
-| `checkbox_menu()` | function | `checkbox_menu(win, title, options, inherited_values, description) -> list[str]` |
+| `radio_menu()` | function | `radio_menu(window, title, options, inherited_value, description) -> str` |
+| `checkbox_menu()` | function | `checkbox_menu(window, title, options, inherited_values, description) -> list[str]` |
 | `TextEntry` | dataclass | fields: `inherited`, `required`, `typed`, `error`; methods: `press()`, `_submit()` |
 | `_inherited_hint()` | function | `_inherited_hint(entry, masked) -> str` |
-| `_draw_text_entry()` | function | `_draw_text_entry(win, title, prompt, entry, masked) -> None` |
-| `text_input()` | function | `text_input(win, title, prompt, inherited, required, masked) -> str` |
-| `password_input_with_confirm()` | function | `password_input_with_confirm(win, title, prompt) -> str` |
-| `confirm_screen()` | function | `confirm_screen(win, title, items) -> bool` |
+| `_draw_text_entry()` | function | `_draw_text_entry(window, title, prompt, entry, masked) -> None` |
+| `text_input()` | function | `text_input(window, title, prompt, inherited, required, masked) -> str` |
+| `password_input_with_confirm()` | function | `password_input_with_confirm(window, title, prompt) -> str` |
+| `confirm_screen()` | function | `confirm_screen(window, title, items) -> bool` |
 | `_toggle_line()` | function | `_toggle_line(label, is_on, inherited_on) -> str` |
-| `toggle_menu()` | function | `toggle_menu(win, title, toggles, description) -> list[tuple[str, bool]]` |
-| `info_screen()` | function | `info_screen(win, title, message) -> None` |
+| `toggle_menu()` | function | `toggle_menu(window, title, toggles, description) -> list[tuple[str, bool]]` |
+| `info_screen()` | function | `info_screen(window, title, message) -> None` |
 | constants | - | `KEY_ESCAPE`, `KEY_TAB`, `KEY_SPACE`, `KEY_Q`, `ENTER_KEYS`, `BACKSPACE_KEYS`, `PRINTABLE_KEYS`, `BORDER_PAD`, `TITLE_ROW`, `CONTENT_START`, `HELP_ROW_OFFSET`, `INHERITED_TAG` |
 
 **Imports from project:** -  
@@ -714,18 +717,18 @@ Expected values come from `~/final_config.yaml` (or `config/config.yaml`) throug
 | `test_config.py` | 79 | `TestConfigLoader`, `TestPartialSectionMerge`, `TestExampleConfig` (10 tests) | `config.loader`, `config.models` |
 | `test_core.py` | 67 | `TestCommandResult`, `TestSystemCommandRunner` (10 tests) | `core.command` |
 | `test_docker.py` | 43 | `TestDaemonJson`, `TestDockerExecutor` (4 tests) | `config.models`, `executors.docker` |
-| `test_environment.py` | 83 | `TestEnvironmentOverride`, `TestEnvVarNames`, `TestUnlockSecrets` (11 tests) | `config.environment`, `config.models`, `core.secrets` |
+| `test_environment.py` | 83 | `TestEnvironmentOverride`, `TestEnvVariableNames`, `TestUnlockSecrets` (11 tests) | `config.environment`, `config.models`, `core.secrets` |
 | `test_firewall.py` | 59 | `TestFirewallExecutor` (7 tests) | `config.models`, `executors.firewall` |
 | `test_gpu.py` | 45 | `TestProprietaryNvidiaGating`, `TestNvidiaDriverExecutor`, `TestInitramfsHook` (6 tests) | `config.models`, `executors.gpu` |
 | `test_installer.py` | 84 | `TestPipelineSelection`, `TestInstallerRun` (5 tests) | `config.models`, `executors.base`, `executors.docker`, `executors.firewall`, `executors.gpu`, `executors.migration`, `executors.storage`, `executors.usb_boot`, `installer` |
 | `test_migration.py` | 77 | `TestMigrationStaging`, `TestMigrationRestore` (5 tests) | `config.models`, `executors.migration` |
 | `test_packages.py` | 93 | `TestPackageCollection`, `TestPackageInstall` (7 tests) | `config.models`, `executors.packages` |
 | `test_secrets.py` | 26 | `TestSecretCrypto` (5 tests) | `core.secrets` |
-| `test_secrets_file.py` | 127 | `TestWriteEncryptedSecrets`, `TestSecretsCommands` (8 tests) | `cli`, `config.loader`, `config.models`, `config.secrets_file`, `core.log` |
+| `test_secrets_file.py` | 211 | `TestWriteEncryptedSecrets`, `TestSecretsCommands` (12 tests) | `cli`, `config.loader`, `config.models`, `config.secrets_file`, `core.log` |
 | `test_snapper.py` | 52 | `TestSnapperExecutor`, `TestSnapshotBootExecutor` (6 tests) | `config.models`, `executors.snapper` |
 | `test_storage.py` | 65 | `TestStorageExecutor` (5 tests) | `config.models`, `executors.storage` |
 | `test_system.py` | 67 | `TestSystemTemplates`, `TestSystemExecutor` (7 tests) | `config.models`, `executors.system` |
-| `test_tui.py` | 103 | `TestTextEntry`, `TestSwapSizeOptions` (12 tests) | `tui.app`, `tui.widgets` |
+| `test_tui.py` | 102 | `TestTextEntry`, `TestSwapSizeOptions` (12 tests) | `tui.app`, `tui.widgets` |
 | `test_usb_backup.py` | 76 | `TestPackageCatalog`, `TestUsbBackupExecutor` (7 tests) | `config.models`, `core.command`, `executors.usb_backup` |
 | `test_usb_boot.py` | 81 | `TestUsbPartitionPaths`, `TestUsbBootDriveProvisioning`, `TestUsbBootExecutor` (7 tests) | `config.models`, `executors.usb_boot` |
 
@@ -738,12 +741,12 @@ Full end-to-end tests running the installer in QEMU VMs with UEFI Secure Boot.
 | File | Lines | Purpose |
 | ---- | ----- | ------- |
 | `vm.py` | 588 | `QemuVm`: VM lifecycle (setup, start, stop, reboot with LUKS passphrase over serial), SSH/SCP via sshpass, console typing via monitor `sendkey`. OVMF/QEMU/sshpass discovery, `wait_for_vm_boot_and_network()` |
-| `conftest.py` | 235 | Fixtures `qemu_vm_with_network`, `qemu_vm_with_usb_disk_and_network`, `package_cache_proxy`, config fixtures. Options `--arch-iso`, `--qemu-memory`, `--qemu-cpus`, `--qemu-disk-size`, `--qemu-work-dir`, `--qemu-display`, `--keep-vm`, `--package-cache-dir`, `--offline-mode`. Per-xdist-worker SSH port ranges |
-| `assertions.py` | 1244 | `InstallationAssertions`: soft assertions (each prints ✓/✗, `raise_if_failed()` at the end) for partitions, LUKS, BTRFS, boot/UKI, secure boot, ESP random seed, system config, swap/hibernation, snapper, services, USB drive and backup |
+| `conftest.py` | 237 | Fixtures `qemu_vm_with_network`, `qemu_vm_with_usb_disk_and_network`, `package_cache_proxy`, config fixtures. Options `--arch-iso`, `--qemu-memory`, `--qemu-cpus`, `--qemu-disk-size`, `--qemu-work-dir`, `--qemu-display`, `--keep-vm`, `--package-cache-dir`, `--offline-mode`. Per-xdist-worker SSH port ranges |
+| `assertions.py` | 1250 | `InstallationAssertions`: soft assertions (each prints ✓/✗, `raise_if_failed()` at the end) for partitions, LUKS, BTRFS, boot/UKI, secure boot, ESP random seed, system config, swap/hibernation, snapper, services, USB drive and backup |
 | `tmux_driver.py` | 78 | `TmuxSession`, `TmuxScreenInput`: runs a curses program in tmux on the VM, waits for each screen in the rendered pane, sends keys, and collects the exit code |
-| `package_cache.py` | 256 | `PackageCacheProxy`: local HTTP proxy caching pacman packages (fixture exists, no test uses it yet) |
+| `package_cache.py` | 258 | `PackageCacheProxy`: local HTTP proxy caching pacman packages (fixture exists, no test uses it yet) |
 | `ssh_config.py` | 44 | Commands run before rebooting into the installed system: root SSH login, sshd, a ufw rule for port 22 (test access only), NetworkManager, serial console |
-| `uefi_setup.py` | 182 | Secure Boot status from EFI variables: `verify_secure_boot_properly_configured()`, `verify_setup_mode_before_install()`, `print_secure_boot_summary()` |
+| `uefi_setup.py` | 184 | Secure Boot status from EFI variables: `verify_secure_boot_properly_configured()`, `verify_setup_mode_before_install()`, `print_secure_boot_summary()` |
 | `tui_test_runner.py` | 48 | Copied to the VM: runs `run_tui_setup()` and dumps the resulting selections to JSON |
 | `qemu_manual_test.sh` | 548 | Launches a VM for manual testing (VNC + SSH) |
 
@@ -751,7 +754,7 @@ Full end-to-end tests running the installer in QEMU VMs with UEFI Secure Boot.
 
 | File | Lines | Tests |
 | ---- | ----- | ----- |
-| `test_installation.py` | 1212 | `TestQemuFullInstallation`: maximal config (all features), migration (home data and byte-identical secure boot keys), idempotent recovery (re-run with `WIPE_METHOD=skip` reuses the existing LUKS volume), env var overrides, USB boot drive, USB backup, TUI install driven through tmux (passwords inherited from encrypted secrets), unsigned EFI binaries rejected |
+| `test_installation.py` | 1218 | `TestQemuFullInstallation`: maximal config (all features), migration (home data and byte-identical secure boot keys), idempotent recovery (re-run with `WIPE_METHOD=skip` reuses the existing LUKS volume), env var overrides, USB boot drive, USB backup, TUI install driven through tmux (passwords inherited from encrypted secrets), unsigned EFI binaries rejected |
 | `test_tui.py` | 102 | `TestTuiInteraction`: drives every TUI screen through tmux (data-driven screen script, typed overrides and cursor moves relative to the inherited values) and compares the collected selections |
 
 ---

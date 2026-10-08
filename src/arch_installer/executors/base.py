@@ -14,10 +14,10 @@ TARGET_ROOT = "/mnt"
 TARGET_EFI = f"{TARGET_ROOT}/efi"
 
 # sbctl moved its data directory from /usr/share/secureboot to /var/lib/sbctl
-SBCTL_DIR = "/var/lib/sbctl"
-SBCTL_LEGACY_DIR = "/usr/share/secureboot"
-SBCTL_PK_KEY = f"{SBCTL_DIR}/keys/PK/PK.key"
-SBCTL_DB_KEY = f"{SBCTL_DIR}/keys/db/db.key"
+SBCTL_DIRECTORY = "/var/lib/sbctl"
+SBCTL_LEGACY_DIRECTORY = "/usr/share/secureboot"
+SBCTL_PK_KEY = f"{SBCTL_DIRECTORY}/keys/PK/PK.key"
+SBCTL_DB_KEY = f"{SBCTL_DIRECTORY}/keys/db/db.key"
 
 
 class Executor(ABC):
@@ -41,7 +41,7 @@ def file_exists(runner: CommandRunner, path: str) -> bool:
     return runner.run(f"test -f {path}", raise_on_nonzero_exit=False).success
 
 
-def dir_exists(runner: CommandRunner, path: str) -> bool:
+def directory_exists(runner: CommandRunner, path: str) -> bool:
     return runner.run(f"test -d {path}", raise_on_nonzero_exit=False).success
 
 

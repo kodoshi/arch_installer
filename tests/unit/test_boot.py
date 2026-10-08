@@ -78,14 +78,14 @@ class TestUkiVariants:
 
 class TestBootTemplates:
     def test_mkinitcpio_conf_lists_hooks_and_modules(self):
-        conf = mkinitcpio_conf(("base", "systemd"), ("nvidia",))
-        assert "HOOKS=(base systemd)" in conf
-        assert "MODULES=(nvidia)" in conf
+        rendered_file = mkinitcpio_conf(("base", "systemd"), ("nvidia",))
+        assert "HOOKS=(base systemd)" in rendered_file
+        assert "MODULES=(nvidia)" in rendered_file
 
     def test_loader_conf_renders_timeout_and_editor(self):
-        conf = loader_conf(build_config().boot.loader)
-        assert "timeout 20" in conf
-        assert "editor no" in conf
+        rendered_file = loader_conf(build_config().boot.loader)
+        assert "timeout 20" in rendered_file
+        assert "editor no" in rendered_file
 
     def test_kernel_preset_references_the_uki_path(self):
         preset = kernel_preset("linux", (UkiVariantConfig("default"),))

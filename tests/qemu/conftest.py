@@ -91,8 +91,8 @@ def pytest_addoption(parser) -> None:
 def _find_free_port(start: int = 2222, end: int = 3000) -> int:
     for port in range(start, end):
         try:
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                s.bind(("127.0.0.1", port))
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe_socket:
+                probe_socket.bind(("127.0.0.1", port))
                 return port
         except OSError:
             continue
@@ -129,10 +129,10 @@ def _vm_booted_with_network(
 
     work_root = Path(request.config.getoption("--qemu-work-dir"))
     work_root.mkdir(parents=True, exist_ok=True)
-    work_dir = Path(tempfile.mkdtemp(prefix="arch-qemu-test-", dir=work_root))
+    working_directory = Path(tempfile.mkdtemp(prefix="arch-qemu-test-", dir=work_root))
 
     vm = QemuVm(config=config)
-    vm.setup(work_dir)
+    vm.setup(working_directory)
     try:
         vm.start(iso_path=arch_iso_path)
         if not wait_for_vm_boot_and_network(vm, timeout=180):
@@ -140,7 +140,7 @@ def _vm_booted_with_network(
         yield vm
     finally:
         if request.config.getoption("--keep-vm"):
-            print(f"\n[--keep-vm] VM kept running. Work dir: {work_dir}")
+            print(f"\n[--keep-vm] VM kept running. Work dir: {working_directory}")
             print(f"[--keep-vm] SSH: ssh -p {config.ssh_port} root@127.0.0.1")
         else:
             vm.cleanup()
@@ -174,17 +174,19 @@ def project_root() -> Path:
 
 @pytest.fixture
 def installer_config(project_root: Path) -> dict:
-    with open(project_root / "config" / "config.yaml") as f:
-        return yaml.safe_load(f)
+    with open(project_root / "config" / "config.yaml") as config_file:
+        return yaml.safe_load(config_file)
 
 
 @pytest.fixture
 def package_cache_config(request, tmp_path_factory) -> PackageCacheConfig:
-    cache_dir = request.config.getoption("--package-cache-dir")
-    cache_path = Path(cache_dir) if cache_dir else tmp_path_factory.mktemp("pacman-cache")
+    cache_directory = request.config.getoption("--package-cache-dir")
+    cache_path = (
+        Path(cache_directory) if cache_directory else tmp_path_factory.mktemp("pacman-cache")
+    )
 
     return PackageCacheConfig(
-        cache_dir=cache_path,
+        cache_directory=cache_path,
         port=_find_free_port(8080, 9000),
         offline_mode=request.config.getoption("--offline-mode"),
     )
@@ -222,7 +224,7 @@ def qemu_vm_with_usb_disk_and_network(
 
 @pytest.fixture
 def expected_subvolumes(installer_config: dict) -> list[str]:
-    return [sv["name"] for sv in installer_config["storage"]["btrfs"]["subvolumes"]]
+    return [subvolume["name"] for subvolume in installer_config["storage"]["btrfs"]["subvolumes"]]
 
 
 @pytest.fixture

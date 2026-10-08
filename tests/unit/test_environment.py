@@ -1,6 +1,6 @@
 import pytest
 
-from arch_installer.config.environment import Environment, EnvVar, unlock_secrets
+from arch_installer.config.environment import Environment, EnvVariable, unlock_secrets
 from arch_installer.config.models import (
     CpuVendor,
     Credentials,
@@ -61,11 +61,11 @@ class TestEnvironmentOverride:
         assert result.credentials.user_password == "user"
 
 
-class TestEnvVarNames:
+class TestEnvVariableNames:
     def test_every_binding_variable_is_an_envvar_member(self):
         # the single source of truth for names is the enum
-        assert EnvVar.TARGET_DISK == "TARGET_DISK"
-        assert EnvVar.SECRETS_KEY == "ARCH_INSTALLER_SECRETS_KEY"
+        assert EnvVariable.TARGET_DISK == "TARGET_DISK"
+        assert EnvVariable.SECRETS_KEY == "ARCH_INSTALLER_SECRETS_KEY"
 
 
 class TestUnlockSecrets:

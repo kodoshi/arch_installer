@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from tests.qemu.test_installation import QEMU_DATA_DIR, run_checked, setup_vm_for_install
+from tests.qemu.test_installation import QEMU_DATA_DIRECTORY, run_checked, setup_vm_for_install
 from tests.qemu.tmux_driver import TmuxScreenInput, TmuxSession
 from tests.qemu.vm import QemuVm
 
@@ -73,7 +73,7 @@ class TestTuiInteraction:
         vm = qemu_vm_with_network
 
         print("\n=== phase 1: setup VM for TUI test ===")
-        setup_vm_for_install(vm, config_path=QEMU_DATA_DIR / "maximal_config.yaml")
+        setup_vm_for_install(vm, config_path=QEMU_DATA_DIRECTORY / "maximal_config.yaml")
         run_checked(vm, ["pacman -S --noconfirm tmux"], timeout=120)
         vm.copy_file_to_vm(Path(__file__).parent / "tui_test_runner.py", "/root/tui_test_runner.py")
 

@@ -1,5 +1,14 @@
 .PHONY: install run test test-unit test-qemu test-qemu-full lint format verify clean help diagrams encrypt-secrets decrypt-secrets deps init_to_usb backup_to_usb
 
+# secrets given as make arguments are readable by every user through `ps` and stay in the
+# shell history, so they are refused; the targets prompt for them without echo instead
+SECRET_VARIABLES := ARCH_INSTALLER_SECRETS_KEY LUKS_PASSWORD USER_PASSWORD SOURCE_LUKS_PASSWORD
+SECRETS_ON_COMMAND_LINE := $(strip $(foreach variable,$(SECRET_VARIABLES),\
+	$(if $(filter command line,$(origin $(variable))),$(variable))))
+ifneq ($(SECRETS_ON_COMMAND_LINE),)
+$(error $(SECRETS_ON_COMMAND_LINE) must not be given as make arguments: `ps` and the shell history would show them. Leave it out to be prompted, see docs/configuration.md#keeping-secrets-out-of-ps-and-shell-history)
+endif
+
 PLANTUML ?= plantuml
 VERBOSE ?=
 DIAGRAMS_DIR := docs/diagrams
@@ -22,10 +31,10 @@ help:
 	@echo "  make lint           - Check code with ruff"
 	@echo "  make format         - Format code with ruff"
 	@echo ""
-	@echo "Secrets Management:"
-	@echo "  make encrypt-secrets ARCH_INSTALLER_SECRETS_KEY=key LUKS_PASSWORD=p1 USER_PASSWORD=p2"
-	@echo "       (writes to config.yaml; add NO_WRITE=true to print only)"
-	@echo "  make decrypt-secrets (requires ARCH_INSTALLER_SECRETS_KEY env var)"
+	@echo "Secrets Management (the key and passwords are prompted for, never passed as arguments):"
+	@echo "  make encrypt-secrets [CONFIG_PATH=config/config.yaml] [NO_WRITE=true]"
+	@echo "       (writes the encrypted passwords to config.yaml; NO_WRITE=true only prints them)"
+	@echo "  make decrypt-secrets [CONFIG_PATH=config/config.yaml]"
 	@echo ""
 	@echo "USB Operations:"
 	@echo "  make init_to_usb USB_DEVICE=/dev/sdX [ISO_PATH=/path/to/arch.iso]"

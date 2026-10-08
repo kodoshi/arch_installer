@@ -6,7 +6,7 @@ from arch_installer.config.models import SnapperVolumeConfig
 from arch_installer.executors.base import (
     TARGET_ROOT,
     Executor,
-    dir_exists,
+    directory_exists,
     file_exists,
     is_mountpoint,
     write_file,
@@ -252,26 +252,26 @@ class SnapperExecutor(Executor):
     def _prepare_snapshots_subvolume(self, volume: SnapperVolumeConfig) -> None:
         # snapper expects <subvolume>/.snapshots; mount the dedicated subvolume there
         # instead of the nested one `snapper create-config` would make
-        snapshots_dir = f"{TARGET_ROOT}{volume.snapshots_path}"
-        if is_mountpoint(self._runner, snapshots_dir):
-            self._runner.run(f"umount {snapshots_dir}")
-        if dir_exists(self._runner, snapshots_dir):
+        snapshots_directory = f"{TARGET_ROOT}{volume.snapshots_path}"
+        if is_mountpoint(self._runner, snapshots_directory):
+            self._runner.run(f"umount {snapshots_directory}")
+        if directory_exists(self._runner, snapshots_directory):
             if self._runner.run(
-                f"btrfs subvolume show {snapshots_dir}", raise_on_nonzero_exit=False
+                f"btrfs subvolume show {snapshots_directory}", raise_on_nonzero_exit=False
             ).success:
                 self._runner.run(
-                    f"btrfs subvolume delete {snapshots_dir}", raise_on_nonzero_exit=False
+                    f"btrfs subvolume delete {snapshots_directory}", raise_on_nonzero_exit=False
                 )
             else:
-                self._runner.run(f"rmdir {snapshots_dir}", raise_on_nonzero_exit=False)
+                self._runner.run(f"rmdir {snapshots_directory}", raise_on_nonzero_exit=False)
 
-        self._runner.run(f"mkdir -p {snapshots_dir}")
+        self._runner.run(f"mkdir -p {snapshots_directory}")
         mount_options = self._config.storage.btrfs.mount_options
         self._runner.run(
             f"mount -o subvol={volume.snapshots_subvolume},{mount_options} "
-            f"{self._config.storage.cryptroot_device} {snapshots_dir}"
+            f"{self._config.storage.cryptroot_device} {snapshots_directory}"
         )
-        self._runner.run(f"chmod 750 {snapshots_dir}")
+        self._runner.run(f"chmod 750 {snapshots_directory}")
 
 
 class SnapshotBootExecutor(Executor):

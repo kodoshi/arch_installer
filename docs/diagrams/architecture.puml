@@ -48,7 +48,7 @@ package "Configuration (config/)" {
         unknown keys and wrong types fail
     }
 
-    enum EnvVar {
+    enum EnvVariable {
         LUKS_PASSWORD
         TARGET_DISK
         ENABLE_FIREWALL
@@ -159,7 +159,7 @@ cli --> secrets_file : encrypt_secrets
 cli --> log
 
 loader --> InstallerConfig : builds
-Environment --> EnvVar
+Environment --> EnvVariable
 Environment --> InstallerConfig : replace()
 Environment --> crypto : unlock_secrets
 secrets_file --> loader : verifies edit

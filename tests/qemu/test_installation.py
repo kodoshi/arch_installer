@@ -17,7 +17,7 @@ from tests.qemu.vm import QemuVm
 INSTALL_TIMEOUT = 1800
 SECRETS_KEY = "12345678"
 PROJECT_ROOT = Path(__file__).parent.parent.parent
-QEMU_DATA_DIR = Path(__file__).parent.parent / "data"
+QEMU_DATA_DIRECTORY = Path(__file__).parent.parent / "data"
 SBCTL_KEY_FILES = " ".join(
     f"/mnt/var/lib/sbctl/keys/{key}" for key in ("PK/PK.key", "KEK/KEK.key", "db/db.key")
 )
@@ -60,14 +60,14 @@ def setup_vm_for_install(
         timeout=300,
     )
     assert exit_code == 0, f"Failed to install dependencies: {stderr}"
-    vm.copy_dir_to_vm(PROJECT_ROOT, "/root/arch_installer")
+    vm.copy_directory_to_vm(PROJECT_ROOT, "/root/arch_installer")
     if config_path:
         vm.run_ssh_command("mkdir -p /root/arch_installer/config", timeout=30)
         vm.copy_file_to_vm(config_path, "/root/arch_installer/config/config.yaml")
 
 
 def load_test_config(file_name: str) -> dict:
-    with open(QEMU_DATA_DIR / file_name) as config_file:
+    with open(QEMU_DATA_DIRECTORY / file_name) as config_file:
         return yaml.safe_load(config_file)
 
 
@@ -86,10 +86,10 @@ def unattended_install_env(**overrides: str) -> dict[str, str]:
     }
 
 
-def run_make_install(vm: QemuVm, env_vars: dict[str, str]) -> tuple[int, str, str]:
-    env_str = " ".join(f"{k}={v}" for k, v in env_vars.items())
+def run_make_install(vm: QemuVm, env_variables: dict[str, str]) -> tuple[int, str, str]:
+    env_assignments = " ".join(f"{name}={value}" for name, value in env_variables.items())
     return vm.run_ssh_command(
-        f"cd /root/arch_installer && {env_str} make install",
+        f"cd /root/arch_installer && {env_assignments} make install",
         timeout=2400,
     )
 
@@ -104,10 +104,10 @@ def run_checked(vm: QemuVm, commands: list[str], timeout: int = 60) -> None:
 
 def configure_ssh_and_reboot(vm: QemuVm, luks_passphrase: str = "testpassword") -> None:
     """configure SSH for installed system and reboot."""
-    for cmd in SSH_CONFIG_COMMANDS_FOR_INSTALLED_SYSTEM:
-        exit_code, _, _ = vm.run_ssh_command(cmd, timeout=120)
+    for command in SSH_CONFIG_COMMANDS_FOR_INSTALLED_SYSTEM:
+        exit_code, _, _ = vm.run_ssh_command(command, timeout=120)
         if exit_code != 0:
-            print(f"    warning: SSH setup command failed: {cmd}")
+            print(f"    warning: SSH setup command failed: {command}")
     vm.run_ssh_command("umount -R /mnt 2>/dev/null || true", timeout=60)
     vm.reboot(wait_for_ssh=True, timeout=300, luks_passphrase=luks_passphrase)
 
@@ -170,7 +170,9 @@ class TestQemuFullInstallation:
         """
         vm = qemu_vm_with_network
         config = load_test_config("maximal_config.yaml")
-        expected_subvolumes = [sv["name"] for sv in config["storage"]["btrfs"]["subvolumes"]]
+        expected_subvolumes = [
+            subvolume["name"] for subvolume in config["storage"]["btrfs"]["subvolumes"]
+        ]
         assertions = InstallationAssertions(vm)
 
         print("\n=== phase 1: pre-install verification ===")
@@ -180,7 +182,7 @@ class TestQemuFullInstallation:
         )
 
         print("\n=== phase 2: run installer with maximal config ===")
-        setup_vm_for_install(vm, config_path=QEMU_DATA_DIR / "maximal_config.yaml")
+        setup_vm_for_install(vm, config_path=QEMU_DATA_DIRECTORY / "maximal_config.yaml")
 
         exit_code, stdout, stderr = run_make_install(
             vm,
@@ -213,14 +215,16 @@ class TestQemuFullInstallation:
         assertions.assert_btrfs_mount_options(expected_mount_options(config["storage"]))
 
         print("    checking NoCow attributes on relevant subvolumes...")
-        for sv in config["storage"]["btrfs"]["subvolumes"]:
-            if sv.get("nocow"):
-                assertions.assert_nocow_attribute(f"/mnt{sv['mountpoint']}")
+        for subvolume in config["storage"]["btrfs"]["subvolumes"]:
+            if subvolume.get("nocow"):
+                assertions.assert_nocow_attribute(f"/mnt{subvolume['mountpoint']}")
 
         print("    checking subvolume mount points...")
-        for sv in config["storage"]["btrfs"]["subvolumes"]:
-            if sv["mountpoint"] != "/":
-                assertions.assert_subvolume_mounted(sv["name"], f"/mnt{sv['mountpoint']}")
+        for subvolume in config["storage"]["btrfs"]["subvolumes"]:
+            if subvolume["mountpoint"] != "/":
+                assertions.assert_subvolume_mounted(
+                    subvolume["name"], f"/mnt{subvolume['mountpoint']}"
+                )
 
         assertions.raise_if_failed()
 
@@ -236,13 +240,13 @@ class TestQemuFullInstallation:
 
         username = config["system"]["user"]["name"]
         user_groups = config["system"]["user"]["groups"].copy()
-        locale_str = (
+        expected_locale = (
             f"{config['system']['locale']['language']}.{config['system']['locale']['encoding']}"
         )
 
         post_boot_assertions.assert_hostname(config["system"]["hostname"])
         post_boot_assertions.assert_timezone(config["system"]["timezone"])
-        post_boot_assertions.assert_locale(locale_str)
+        post_boot_assertions.assert_locale(expected_locale)
         post_boot_assertions.assert_keymap(config["system"]["locale"]["keymap"])
         post_boot_assertions.assert_user_exists(username)
         post_boot_assertions.assert_user_in_groups(username, user_groups)
@@ -257,8 +261,8 @@ class TestQemuFullInstallation:
 
         print("    checking UKI files for all kernels...")
         expected_kernel_patterns = []
-        for k in config["boot"]["kernels"]:
-            package = k["package"]
+        for kernel in config["boot"]["kernels"]:
+            package = kernel["package"]
             if package == "linux":
                 expected_kernel_patterns.append("arch-linux-default")
             else:
@@ -268,12 +272,12 @@ class TestQemuFullInstallation:
 
         print("    checking kernel cmdline hardening...")
         hardening = config["boot"]["cmdline"]["hardening"]
-        expected_cmdline_params = [
+        expected_kernel_parameters = [
             f"lockdown={hardening['lockdown']}",
             f"iommu={hardening['iommu']}",
             f"pti={hardening['pti']}",
         ]
-        post_boot_assertions.assert_kernel_cmdline_contains(expected_cmdline_params)
+        post_boot_assertions.assert_kernel_cmdline_contains(expected_kernel_parameters)
 
         post_boot_assertions.assert_secure_boot_keys_created()
         post_boot_assertions.assert_secure_boot_keys_exist()
@@ -286,9 +290,9 @@ class TestQemuFullInstallation:
         post_boot_assertions.assert_pk_enrolled()
         post_boot_assertions.assert_kek_enrolled()
         post_boot_assertions.assert_db_enrolled()
-        post_boot_assertions.assert_fstab_entry("/", fs_type="btrfs")
-        post_boot_assertions.assert_fstab_entry("/home", fs_type="btrfs")
-        post_boot_assertions.assert_fstab_entry("/efi", fs_type="vfat")
+        post_boot_assertions.assert_fstab_entry("/", filesystem_type="btrfs")
+        post_boot_assertions.assert_fstab_entry("/home", filesystem_type="btrfs")
+        post_boot_assertions.assert_fstab_entry("/efi", filesystem_type="vfat")
 
         print("    checking critical packages installed...")
         critical_packages = ["sbctl", "btrfs-progs", "cryptsetup", "snapper", "networkmanager"]
@@ -388,17 +392,17 @@ class TestQemuFullInstallation:
         vm.run_ssh_command("pacman -S --noconfirm git", timeout=120)
 
         # create a bare git repo to act as remote
-        repo_path = "/tmp/dotfiles-remote.git"
-        vm.run_ssh_command(f"git init --bare {repo_path}", timeout=30)
-        vm.run_ssh_command(f"chown -R {username}:{username} {repo_path}", timeout=30)
+        repository_path = "/tmp/dotfiles-remote.git"
+        vm.run_ssh_command(f"git init --bare {repository_path}", timeout=30)
+        vm.run_ssh_command(f"chown -R {username}:{username} {repository_path}", timeout=30)
 
         # add safe.directory to avoid dubious ownership errors
         vm.run_ssh_command(
-            f"git config --global --add safe.directory {repo_path}",
+            f"git config --global --add safe.directory {repository_path}",
             timeout=30,
         )
         vm.run_ssh_command(
-            f'su - {username} -c "git config --global --add safe.directory {repo_path}"',
+            f'su - {username} -c "git config --global --add safe.directory {repository_path}"',
             timeout=30,
         )
 
@@ -413,24 +417,24 @@ class TestQemuFullInstallation:
         )
 
         # initialize dotfiles-sync with the local repo
-        dotfiles_repo = f"/home/{username}/.dotfiles-repo"
+        dotfiles_repository = f"/home/{username}/.dotfiles-repo"
         vm.run_ssh_command(
-            f'su - {username} -c "mkdir -p {dotfiles_repo}"',
+            f'su - {username} -c "mkdir -p {dotfiles_repository}"',
             timeout=30,
         )
         vm.run_ssh_command(
-            f'su - {username} -c "cd {dotfiles_repo} && git init"',
+            f'su - {username} -c "cd {dotfiles_repository} && git init"',
             timeout=30,
         )
         vm.run_ssh_command(
-            f'su - {username} -c "cd {dotfiles_repo} && git remote add origin {repo_path}"',
+            f'su - {username} -c "cd {dotfiles_repository} && git remote add origin {repository_path}"',
             timeout=30,
         )
 
         # create dotfiles-sync config
-        config_dir = f"/home/{username}/.config/dotfiles-sync"
-        vm.run_ssh_command(f"mkdir -p {config_dir}", timeout=30)
-        vm.run_ssh_command(f"chown -R {username}:{username} {config_dir}", timeout=30)
+        config_directory = f"/home/{username}/.config/dotfiles-sync"
+        vm.run_ssh_command(f"mkdir -p {config_directory}", timeout=30)
+        vm.run_ssh_command(f"chown -R {username}:{username} {config_directory}", timeout=30)
 
         # create a simple config with one test file
         config_content = f"""
@@ -439,7 +443,7 @@ files:
     target: bashrc
 """
         exit_code, _, _ = vm.run_ssh_command(
-            f'echo "{config_content}" > {config_dir}/config.yaml',
+            f'echo "{config_content}" > {config_directory}/config.yaml',
             timeout=30,
         )
 
@@ -459,25 +463,25 @@ files:
 
         # set default branch to main for consistency
         vm.run_ssh_command(
-            f'su - {username} -c "cd {dotfiles_repo} && git checkout -b main"',
+            f'su - {username} -c "cd {dotfiles_repository} && git checkout -b main"',
             timeout=30,
         )
 
         # manually commit and push to verify git works
         vm.run_ssh_command(
-            f'su - {username} -c "cd {dotfiles_repo} && cp ~/.bashrc bashrc"',
+            f'su - {username} -c "cd {dotfiles_repository} && cp ~/.bashrc bashrc"',
             timeout=30,
         )
         vm.run_ssh_command(
-            f'su - {username} -c "cd {dotfiles_repo} && git add -A"',
+            f'su - {username} -c "cd {dotfiles_repository} && git add -A"',
             timeout=30,
         )
         vm.run_ssh_command(
-            f'su - {username} -c "cd {dotfiles_repo} && git commit -m \\"Initial dotfiles\\""',
+            f'su - {username} -c "cd {dotfiles_repository} && git commit -m \\"Initial dotfiles\\""',
             timeout=30,
         )
         exit_code, stdout, stderr = vm.run_ssh_command(
-            f'su - {username} -c "cd {dotfiles_repo} && git push -u origin main 2>&1"',
+            f'su - {username} -c "cd {dotfiles_repository} && git push -u origin main 2>&1"',
             timeout=60,
         )
         assert exit_code == 0, f"Git push failed: {stderr}"
@@ -491,11 +495,11 @@ files:
 
         # sync the change
         vm.run_ssh_command(
-            f'su - {username} -c "cd {dotfiles_repo} && cp ~/.bashrc bashrc && git add -A && git commit -m \\"Update bashrc\\""',
+            f'su - {username} -c "cd {dotfiles_repository} && cp ~/.bashrc bashrc && git add -A && git commit -m \\"Update bashrc\\""',
             timeout=30,
         )
         exit_code, _, stderr = vm.run_ssh_command(
-            f'su - {username} -c "cd {dotfiles_repo} && git push"',
+            f'su - {username} -c "cd {dotfiles_repository} && git push"',
             timeout=60,
         )
         assert exit_code == 0, f"Git push update failed: {stderr}"
@@ -503,7 +507,7 @@ files:
 
         # verify the remote has the commits using --all to see all branches in bare repo
         exit_code, stdout, stderr = vm.run_ssh_command(
-            f"git -C {repo_path} log --all --oneline",
+            f"git -C {repository_path} log --all --oneline",
             timeout=30,
         )
         assert exit_code == 0, f"Git log failed with exit {exit_code}: {stderr}"
@@ -753,10 +757,12 @@ files:
         """
         vm = qemu_vm_with_usb_disk_and_network
 
-        config_path = QEMU_DATA_DIR / "maximal_config.yaml"
-        with open(config_path) as f:
-            config = yaml.safe_load(f)
-        expected_subvolumes = [sv["name"] for sv in config["storage"]["btrfs"]["subvolumes"]]
+        config_path = QEMU_DATA_DIRECTORY / "maximal_config.yaml"
+        with open(config_path) as config_file:
+            config = yaml.safe_load(config_file)
+        expected_subvolumes = [
+            subvolume["name"] for subvolume in config["storage"]["btrfs"]["subvolumes"]
+        ]
 
         assertions = InstallationAssertions(vm)
 
@@ -921,9 +927,9 @@ files:
         """
         vm = qemu_vm_with_usb_disk_and_network
 
-        config_path = QEMU_DATA_DIR / "maximal_config.yaml"
-        with open(config_path) as f:
-            config = yaml.safe_load(f)
+        config_path = QEMU_DATA_DIRECTORY / "maximal_config.yaml"
+        with open(config_path) as config_file:
+            config = yaml.safe_load(config_file)
 
         assertions = InstallationAssertions(vm)
 
@@ -979,8 +985,8 @@ files:
         assertions.assert_usb_backup_has_manifest("/mnt/usb-backup")
         assertions.assert_usb_backup_has_package_catalog("/mnt/usb-backup")
         assertions.assert_usb_backup_has_config("/mnt/usb-backup")
-        assertions.assert_usb_backup_has_category_dir("dotfiles", "/mnt/usb-backup")
-        assertions.assert_usb_backup_has_category_dir("system", "/mnt/usb-backup")
+        assertions.assert_usb_backup_has_category_directory("dotfiles", "/mnt/usb-backup")
+        assertions.assert_usb_backup_has_category_directory("system", "/mnt/usb-backup")
 
         # verify specific backed-up items
         exit_code, stdout, _ = vm.run_ssh_command(
@@ -1062,13 +1068,13 @@ files:
         post_boot_assertions = InstallationAssertions(vm)
 
         username = config["system"]["user"]["name"]
-        locale_str = (
+        expected_locale = (
             f"{config['system']['locale']['language']}.{config['system']['locale']['encoding']}"
         )
 
         post_boot_assertions.assert_hostname(config["system"]["hostname"])
         post_boot_assertions.assert_timezone(config["system"]["timezone"])
-        post_boot_assertions.assert_locale(locale_str)
+        post_boot_assertions.assert_locale(expected_locale)
         post_boot_assertions.assert_user_exists(username)
         post_boot_assertions.assert_systemd_boot_installed()
         post_boot_assertions.assert_uki_directory_exists()
@@ -1108,7 +1114,7 @@ files:
         vm = qemu_vm_with_network
 
         print("\n=== phase 1: install system with secure boot ===")
-        setup_vm_for_install(vm, config_path=QEMU_DATA_DIR / "maximal_config.yaml")
+        setup_vm_for_install(vm, config_path=QEMU_DATA_DIRECTORY / "maximal_config.yaml")
 
         exit_code, stdout, stderr = run_make_install(
             vm,

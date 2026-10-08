@@ -23,7 +23,7 @@ from arch_installer.executors.gpu import NVIDIA_INITRAMFS_MODULES
 
 logger = logging.getLogger(__name__)
 
-UKI_DIR = "/efi/EFI/Linux"
+UKI_DIRECTORY = "/efi/EFI/Linux"
 DEFAULT_VARIANT = UkiVariantConfig("default")
 BOOTLOADER_BINARIES = ("/efi/EFI/BOOT/BOOTX64.EFI", "/efi/EFI/systemd/systemd-bootx64.efi")
 
@@ -39,7 +39,7 @@ HOOKS=({" ".join(hooks)})
 
 
 def uki_path(kernel: str, variant: UkiVariantConfig) -> str:
-    return f"{UKI_DIR}/arch-{kernel}-{variant.suffix}.efi"
+    return f"{UKI_DIRECTORY}/arch-{kernel}-{variant.suffix}.efi"
 
 
 def cmdline_file(kernel: str, variant: UkiVariantConfig) -> str:
@@ -122,7 +122,7 @@ class UkiExecutor(Executor):
         write_file(
             self._runner, f"{TARGET_ROOT}/etc/mkinitcpio.conf", mkinitcpio_conf(hooks, modules)
         )
-        self._runner.run(f"mkdir -p {TARGET_ROOT}{UKI_DIR}")
+        self._runner.run(f"mkdir -p {TARGET_ROOT}{UKI_DIRECTORY}")
 
         luks_uuid = detect_luks_uuid(self._runner, self._config.storage.root_partition)
         if not luks_uuid:
@@ -142,7 +142,7 @@ class UkiExecutor(Executor):
         logger.info(
             "Kernels: %s, UKI variants: %s",
             ", ".join(kernels),
-            ", ".join(v.suffix for v in variants),
+            ", ".join(variant.suffix for variant in variants),
         )
         cmdline = kernel_cmdline(self._config, luks_uuid, self._swapfile_resume_offset())
 

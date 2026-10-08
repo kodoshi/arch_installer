@@ -7,14 +7,14 @@ including enabling/disabling setup mode and secure boot enforcement.
 from tests.qemu.vm import QemuVm
 
 
-def get_efi_var_byte(vm: QemuVm, var_path: str) -> int:
+def read_efi_variable_byte(vm: QemuVm, variable_path: str) -> int:
     """read a single-byte EFI variable value (skipping 4 attribute bytes).
 
     returns:
         integer value of the byte, or -1 if variable not found
     """
     _exit_code, stdout, _ = vm.run_ssh_command(
-        f"[ -f {var_path} ] && od -An -t u1 -j4 -N1 {var_path} || echo -1",
+        f"[ -f {variable_path} ] && od -An -t u1 -j4 -N1 {variable_path} || echo -1",
         timeout=10,
     )
     try:
@@ -45,16 +45,18 @@ def get_verbose_secure_boot_status(vm: QemuVm) -> dict:
     print("    reading UEFI variables directly...")
 
     # read SetupMode efivar
-    setup_var = "/sys/firmware/efi/efivars/SetupMode-8be4df61-93ca-11d2-aa0d-00e098032b8c"
-    setup_byte = get_efi_var_byte(vm, setup_var)
+    setup_mode_variable = "/sys/firmware/efi/efivars/SetupMode-8be4df61-93ca-11d2-aa0d-00e098032b8c"
+    setup_byte = read_efi_variable_byte(vm, setup_mode_variable)
     result["setup_mode"] = setup_byte == 1
     print(
         f"      SetupMode efivar: {setup_byte} ({'SETUP MODE' if setup_byte == 1 else 'USER MODE'})"
     )
 
     # read SecureBoot efivar
-    secureboot_var = "/sys/firmware/efi/efivars/SecureBoot-8be4df61-93ca-11d2-aa0d-00e098032b8c"
-    secureboot_byte = get_efi_var_byte(vm, secureboot_var)
+    secure_boot_variable = (
+        "/sys/firmware/efi/efivars/SecureBoot-8be4df61-93ca-11d2-aa0d-00e098032b8c"
+    )
+    secureboot_byte = read_efi_variable_byte(vm, secure_boot_variable)
     result["secure_boot_enabled"] = secureboot_byte == 1
     print(
         f"      SecureBoot efivar: {secureboot_byte} ({'ENABLED' if secureboot_byte == 1 else 'DISABLED'})"
@@ -152,8 +154,8 @@ def verify_setup_mode_before_install(vm: QemuVm) -> bool:
     """
     print("\n    verifying UEFI setup mode for installation...")
 
-    setup_var = "/sys/firmware/efi/efivars/SetupMode-8be4df61-93ca-11d2-aa0d-00e098032b8c"
-    setup_byte = get_efi_var_byte(vm, setup_var)
+    setup_mode_variable = "/sys/firmware/efi/efivars/SetupMode-8be4df61-93ca-11d2-aa0d-00e098032b8c"
+    setup_byte = read_efi_variable_byte(vm, setup_mode_variable)
 
     if setup_byte == 1:
         print("    ✓ UEFI is in setup mode - ready for key enrollment")

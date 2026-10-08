@@ -84,7 +84,9 @@ def _convert(expected_type: Any, value: Any, path: str, default: Any = MISSING) 
         if not isinstance(value, list):
             raise ConfigurationError(f"{path} must be a list")
         item_type = get_args(expected_type)[0]
-        return tuple(_convert(item_type, item, f"{path}[{i}]") for i, item in enumerate(value))
+        return tuple(
+            _convert(item_type, item, f"{path}[{index}]") for index, item in enumerate(value)
+        )
 
     if is_dataclass(expected_type):
         # a section declared in YAML only changes the keys it lists

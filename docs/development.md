@@ -37,11 +37,14 @@ make format           # ruff format + safe fixes
 ### With Environment Variables
 
 ```bash
-LUKS_PASSWORD=lukspass USER_PASSWORD=userpass NON_INTERACTIVE=true make install
+read -rsp 'Secrets key: ' ARCH_INSTALLER_SECRETS_KEY && export ARCH_INSTALLER_SECRETS_KEY
+NON_INTERACTIVE=true make install
 ```
 
+Never type a secret into a command line, see [Keeping secrets out of ps and shell history](configuration.md#keeping-secrets-out-of-ps-and-shell-history).
+
 Every variable is listed in the [Configuration reference](configuration.md#environment-variables).
-Their names live in one place in the code: the `EnvVar` enum in `config/environment.py`.
+Their names live in one place in the code: the `EnvVariable` enum in `config/environment.py`.
 
 ### Direct Python Execution
 
@@ -101,7 +104,7 @@ src/arch_installer/
 ├── config/
 │   ├── models.py               # InstallerConfig and its sections (frozen), enums, defaults
 │   ├── loader.py               # YAML -> InstallerConfig, driven by the model's type hints
-│   ├── environment.py          # EnvVar names, typed readers, override(), unlock_secrets()
+│   ├── environment.py          # EnvVariable names, typed readers, override(), unlock_secrets()
 │   └── secrets_file.py         # writes encrypted passwords into config.yaml, keeping comments
 ├── core/
 │   ├── command.py              # CommandRunner interface, SystemCommandRunner
@@ -164,7 +167,7 @@ make diagrams
 1. Add the config section to `config/models.py` (a frozen dataclass with defaults) and a field for it on `InstallerConfig`
 2. Create `executors/new_section.py` with an `Executor` subclass implementing `execute()`
 3. Add a `Section(label, enabled, executor)` to `PIPELINE` in `installer.py`, in the right order
-4. If it needs an environment override, add the name to `EnvVar` and the override to `Environment.override`
+4. If it needs an environment override, add the name to `EnvVariable` and the override to `Environment.override`
 5. Write tests in `tests/unit/test_new_section.py`
 6. Add assertions in the main QEMU tests in `tests/qemu/test_installation.py` (if applicable)
 

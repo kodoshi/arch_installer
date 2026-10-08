@@ -37,8 +37,10 @@ nano config/config.yaml
 # Option 1: interactive terminal UI (TUI)
 make install
 
-# Option 2: Non-interactive (pre-configure config/config.yaml, fill env vars)
-NON_INTERACTIVE=true LUKS_PASSWORD=... USER_PASSWORD=... make install  # ARCH_INSTALLER_SECRETS_KEY can also be used if passwords are encrypted and stored in config.yaml
+# Option 2: Non-interactive (pre-configure config/config.yaml with encrypted passwords,
+# then give only the key, read without echo so it stays out of `ps` and the shell history)
+read -rsp 'Secrets key: ' ARCH_INSTALLER_SECRETS_KEY && export ARCH_INSTALLER_SECRETS_KEY
+NON_INTERACTIVE=true make install
 ```
 
 The installer will prompt for disk selection, passwords, and optional features. Every screen starts on the value inherited from `config/config.yaml` and the environment, marked `(inherited)`: press Enter to keep it, or choose another to override it. All settings can be pre-configured for non-interactive installations.
@@ -50,18 +52,20 @@ At the end of the installation, you can find a final copy of your config file at
 Store encrypted passwords in your config file for automated installs:
 
 ```bash
-# encrypt and save to config.yaml
-make encrypt-secrets ARCH_INSTALLER_SECRETS_KEY=mysecretkey LUKS_PASSWORD=myluks USER_PASSWORD=myuser
+# encrypt and save to config.yaml: asks for the key and both passwords, without echo
+make encrypt-secrets
 
 # encrypt without writing to config (print only)
-make encrypt-secrets ARCH_INSTALLER_SECRETS_KEY=mysecretkey LUKS_PASSWORD=myluks NO_WRITE=true
+make encrypt-secrets NO_WRITE=true
 
-# decrypt from config.yaml
-ARCH_INSTALLER_SECRETS_KEY=mysecretkey make decrypt-secrets
+# decrypt from config.yaml (asks for the key)
+make decrypt-secrets
 
 # use custom config path
-make encrypt-secrets ARCH_INSTALLER_SECRETS_KEY=key LUKS_PASSWORD=pw CONFIG_PATH=/path/to/config.yaml
+make encrypt-secrets CONFIG_PATH=/path/to/config.yaml
 ```
+
+Secrets are never passed as `make` arguments: those are readable by every user through `ps` and stay in your shell history, so the Makefile refuses them. See [Keeping secrets out of ps and shell history](docs/configuration.md#keeping-secrets-out-of-ps-and-shell-history).
 
 ## Design Principles
 
@@ -134,8 +138,9 @@ sudo verify-install --fix
 Already have a disk-encrypted Arch installation? Migrate it to this managed setup while preserving your data:
 
 ```bash
-# From Arch ISO, after cloning this repo
-SOURCE_LUKS_PASSWORD=your_old_password LUKS_PASSWORD=your_new_password ENABLE_MIGRATION=true make install
+# From Arch ISO, after cloning this repo: choose "Migration" on the first TUI screen,
+# the old and new LUKS passwords are asked for without echo
+make install
 ```
 
 **What gets preserved:**

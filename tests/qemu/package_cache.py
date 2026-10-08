@@ -24,7 +24,7 @@ from pathlib import Path
 class PackageCacheConfig:
     """configuration for the package cache proxy."""
 
-    cache_dir: Path
+    cache_directory: Path
     host: str = "0.0.0.0"
     port: int = 8080
     upstream_mirrors: tuple[str, ...] = (
@@ -42,13 +42,13 @@ class PackageCacheHandler(http.server.SimpleHTTPRequestHandler):
 
     def __init__(self, *args, cache_config: PackageCacheConfig, **kwargs):
         self.cache_config = cache_config
-        super().__init__(*args, directory=str(cache_config.cache_dir), **kwargs)
+        super().__init__(*args, directory=str(cache_config.cache_directory), **kwargs)
 
     def do_GET(self):
         # path format: /repo/os/arch/package.pkg.tar.zst
         # example: /core/os/x86_64/bash-5.2.015-3-x86_64.pkg.tar.zst
         request_path = self.path.lstrip("/")
-        cache_path = self.cache_config.cache_dir / request_path
+        cache_path = self.cache_config.cache_directory / request_path
 
         if cache_path.exists():
             self.send_cached_file(cache_path)
@@ -66,31 +66,31 @@ class PackageCacheHandler(http.server.SimpleHTTPRequestHandler):
 
     def send_cached_file(self, cache_path: Path) -> None:
         try:
-            with open(cache_path, "rb") as f:
-                content = f.read()
+            with open(cache_path, "rb") as cache_file:
+                content = cache_file.read()
 
             self.send_response(200)
             self.send_header("Content-Type", "application/octet-stream")
             self.send_header("Content-Length", str(len(content)))
             self.end_headers()
             self.wfile.write(content)
-        except Exception as e:
-            self.send_error(500, f"error serving file: {e}")
+        except Exception as error:
+            self.send_error(500, f"error serving file: {error}")
 
     def fetch_and_cache(self, request_path: str, cache_path: Path) -> bool:
         """fetch package from upstream mirror and cache locally."""
         for mirror in self.cache_config.upstream_mirrors:
             url = f"{mirror}/{request_path}"
             try:
-                req = urllib.request.Request(
+                upstream_request = urllib.request.Request(
                     url, headers={"User-Agent": "arch-installer-cache/1.0"}
                 )
-                with urllib.request.urlopen(req, timeout=60) as response:
+                with urllib.request.urlopen(upstream_request, timeout=60) as response:
                     content = response.read()
 
                 cache_path.parent.mkdir(parents=True, exist_ok=True)
-                with open(cache_path, "wb") as f:
-                    f.write(content)
+                with open(cache_path, "wb") as cache_file:
+                    cache_file.write(content)
 
                 # also fetch signature if this is a package
                 if request_path.endswith(".pkg.tar.zst") and self.cache_config.verify_signatures:
@@ -104,20 +104,22 @@ class PackageCacheHandler(http.server.SimpleHTTPRequestHandler):
 
     def fetch_signature(self, package_path: str, mirror: str):
         """fetch package signature file."""
-        sig_path = package_path + ".sig"
-        sig_cache = self.cache_config.cache_dir / sig_path
-        if sig_cache.exists():
+        signature_path = package_path + ".sig"
+        signature_cache = self.cache_config.cache_directory / signature_path
+        if signature_cache.exists():
             return
 
         try:
-            url = f"{mirror}/{sig_path}"
-            req = urllib.request.Request(url, headers={"User-Agent": "arch-installer-cache/1.0"})
-            with urllib.request.urlopen(req, timeout=30) as response:
+            url = f"{mirror}/{signature_path}"
+            upstream_request = urllib.request.Request(
+                url, headers={"User-Agent": "arch-installer-cache/1.0"}
+            )
+            with urllib.request.urlopen(upstream_request, timeout=30) as response:
                 content = response.read()
 
-            sig_cache.parent.mkdir(parents=True, exist_ok=True)
-            with open(sig_cache, "wb") as f:
-                f.write(content)
+            signature_cache.parent.mkdir(parents=True, exist_ok=True)
+            with open(signature_cache, "wb") as cache_file:
+                cache_file.write(content)
         except Exception:
             pass  # signatures optional for testing
 
@@ -137,12 +139,12 @@ class PackageCacheProxy:
 
     def setup_cache_directory(self):
         """create cache directory structure."""
-        self.config.cache_dir.mkdir(parents=True, exist_ok=True)
+        self.config.cache_directory.mkdir(parents=True, exist_ok=True)
 
         # create repo directories
-        for repo in ("core", "extra", "multilib"):
-            repo_dir = self.config.cache_dir / repo / "os" / "x86_64"
-            repo_dir.mkdir(parents=True, exist_ok=True)
+        for repository in ("core", "extra", "multilib"):
+            repository_directory = self.config.cache_directory / repository / "os" / "x86_64"
+            repository_directory.mkdir(parents=True, exist_ok=True)
 
     def start(self):
         """start the cache proxy server."""
@@ -169,27 +171,27 @@ class PackageCacheProxy:
         """generate mirrorlist content pointing to the cache proxy."""
         return f"Server = http://{host_ip}:{self.config.port}/$repo/os/$arch\n"
 
-    def precache_packages(self, packages: list[str], arch: str = "x86_64"):
+    def precache_packages(self, packages: list[str], architecture: str = "x86_64"):
         """pre-download packages to ensure they are cached before tests.
 
         packages should be in format: repo/packagename-version-arch.pkg.tar.zst
         or just packagename (will search across repos).
         """
-        for pkg in packages:
-            if "/" in pkg:
+        for package in packages:
+            if "/" in package:
                 # full path provided
-                repo, pkg_name = pkg.split("/", 1)
-                self._fetch_package(repo, pkg_name, arch)
+                repository, package_name = package.split("/", 1)
+                self._fetch_package(repository, package_name, architecture)
             else:
                 # search in all repos
-                for repo in ("core", "extra", "multilib"):
-                    if self._fetch_package(repo, pkg, arch):
+                for repository in ("core", "extra", "multilib"):
+                    if self._fetch_package(repository, package, architecture):
                         break
 
-    def _fetch_package(self, repo: str, package: str, arch: str) -> bool:
+    def _fetch_package(self, repository: str, package: str, architecture: str) -> bool:
         """fetch a single package to cache."""
-        request_path = f"{repo}/os/{arch}/{package}"
-        cache_path = self.config.cache_dir / request_path
+        request_path = f"{repository}/os/{architecture}/{package}"
+        cache_path = self.config.cache_directory / request_path
 
         if cache_path.exists():
             return True
@@ -197,15 +199,15 @@ class PackageCacheProxy:
         for mirror in self.config.upstream_mirrors:
             url = f"{mirror}/{request_path}"
             try:
-                req = urllib.request.Request(
+                upstream_request = urllib.request.Request(
                     url, headers={"User-Agent": "arch-installer-cache/1.0"}
                 )
-                with urllib.request.urlopen(req, timeout=120) as response:
+                with urllib.request.urlopen(upstream_request, timeout=120) as response:
                     content = response.read()
 
                 cache_path.parent.mkdir(parents=True, exist_ok=True)
-                with open(cache_path, "wb") as f:
-                    f.write(content)
+                with open(cache_path, "wb") as cache_file:
+                    cache_file.write(content)
                 return True
             except Exception:
                 continue
@@ -217,14 +219,14 @@ class PackageCacheProxy:
         total_size = 0
         file_count = 0
 
-        for root, _, files in os.walk(self.config.cache_dir):
-            for f in files:
-                file_path = Path(root) / f
+        for root, _, files in os.walk(self.config.cache_directory):
+            for cache_file in files:
+                file_path = Path(root) / cache_file
                 total_size += file_path.stat().st_size
                 file_count += 1
 
         return {
-            "cache_dir": str(self.config.cache_dir),
+            "cache_dir": str(self.config.cache_directory),
             "total_files": file_count,
             "total_size_mb": total_size / (1024 * 1024),
             "offline_mode": self.config.offline_mode,
@@ -234,7 +236,7 @@ class PackageCacheProxy:
         self.start()
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
+    def __exit__(self, exception_type, exception, exception_traceback):
         self.stop()
 
 

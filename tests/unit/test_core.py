@@ -40,9 +40,9 @@ class TestSystemCommandRunner:
         assert "hello world" in result.stdout
 
     def test_should_raise_error_when_command_fails(self, runner):
-        with pytest.raises(CommandError) as exc_info:
+        with pytest.raises(CommandError) as raised:
             runner.run("false")
-        assert exc_info.value.exit_code == 1
+        assert raised.value.exit_code == 1
 
     def test_should_return_failure_when_check_disabled(self, runner):
         result = runner.run("false", raise_on_nonzero_exit=False)
@@ -54,7 +54,7 @@ class TestSystemCommandRunner:
         assert "testvalue" in result.stdout
 
     def test_should_use_working_dir_when_cwd_provided(self, runner, tmp_path):
-        result = runner.run("pwd", work_dir=str(tmp_path))
+        result = runner.run("pwd", working_directory=str(tmp_path))
         assert str(tmp_path) in result.stdout
 
     def test_should_pass_input_when_stdin_provided(self, runner):

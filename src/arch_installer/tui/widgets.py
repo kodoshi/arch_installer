@@ -47,21 +47,21 @@ def init_colors() -> None:
     curses.init_pair(6, curses.COLOR_BLACK, curses.COLOR_CYAN)  # cursor highlight
 
 
-def _draw_title(win: curses.window, title: str) -> None:
-    _max_y, max_x = win.getmaxyx()
-    win.attron(curses.color_pair(1) | curses.A_BOLD)
+def _draw_title(window: curses.window, title: str) -> None:
+    _max_y, max_x = window.getmaxyx()
+    window.attron(curses.color_pair(1) | curses.A_BOLD)
     centered = title.center(max_x - BORDER_PAD * 2)
-    win.addstr(TITLE_ROW, BORDER_PAD, centered[: max_x - BORDER_PAD * 2 - 1])
-    win.attroff(curses.color_pair(1) | curses.A_BOLD)
-    win.addstr(TITLE_ROW + 1, BORDER_PAD, "─" * (max_x - BORDER_PAD * 2 - 1))
+    window.addstr(TITLE_ROW, BORDER_PAD, centered[: max_x - BORDER_PAD * 2 - 1])
+    window.attroff(curses.color_pair(1) | curses.A_BOLD)
+    window.addstr(TITLE_ROW + 1, BORDER_PAD, "─" * (max_x - BORDER_PAD * 2 - 1))
 
 
-def _draw_help(win: curses.window, help_text: str) -> None:
-    max_y, max_x = win.getmaxyx()
+def _draw_help(window: curses.window, help_text: str) -> None:
+    max_y, max_x = window.getmaxyx()
     row = max_y - HELP_ROW_OFFSET
-    win.attron(curses.color_pair(3))
-    win.addstr(row, BORDER_PAD, help_text[: max_x - BORDER_PAD * 2 - 1])
-    win.attroff(curses.color_pair(3))
+    window.attron(curses.color_pair(3))
+    window.addstr(row, BORDER_PAD, help_text[: max_x - BORDER_PAD * 2 - 1])
+    window.attroff(curses.color_pair(3))
 
 
 def _tagged(label: str, is_inherited: bool) -> str:
@@ -69,7 +69,7 @@ def _tagged(label: str, is_inherited: bool) -> str:
 
 
 def radio_menu(
-    win: curses.window,
+    window: curses.window,
     title: str,
     options: list[MenuOption],
     inherited_value: str = "",
@@ -80,14 +80,14 @@ def radio_menu(
     )
 
     while True:
-        win.erase()
-        _draw_title(win, title)
-        max_y, max_x = win.getmaxyx()
+        window.erase()
+        _draw_title(window, title)
+        max_y, max_x = window.getmaxyx()
 
         if description:
-            win.attron(curses.color_pair(4))
-            win.addstr(CONTENT_START - 1, BORDER_PAD, description[: max_x - BORDER_PAD * 2 - 1])
-            win.attroff(curses.color_pair(4))
+            window.attron(curses.color_pair(4))
+            window.addstr(CONTENT_START - 1, BORDER_PAD, description[: max_x - BORDER_PAD * 2 - 1])
+            window.attroff(curses.color_pair(4))
 
         visible_start = CONTENT_START + (1 if description else 0)
         max_visible = max_y - visible_start - HELP_ROW_OFFSET - 1
@@ -97,46 +97,46 @@ def radio_menu(
         if cursor >= max_visible:
             scroll_offset = cursor - max_visible + 1
 
-        for i in range(min(len(options), max_visible)):
-            idx = i + scroll_offset
-            if idx >= len(options):
+        for visible_row in range(min(len(options), max_visible)):
+            option_index = visible_row + scroll_offset
+            if option_index >= len(options):
                 break
 
-            opt = options[idx]
-            row = visible_start + i
-            is_cursor = idx == cursor
+            option = options[option_index]
+            row = visible_start + visible_row
+            is_cursor = option_index == cursor
 
             if is_cursor:
-                win.attron(curses.color_pair(6) | curses.A_BOLD)
+                window.attron(curses.color_pair(6) | curses.A_BOLD)
                 marker = " ▸ "
             else:
-                win.attron(curses.color_pair(4))
+                window.attron(curses.color_pair(4))
                 marker = "   "
 
-            line = f"{marker}{_tagged(opt.label, opt.value == inherited_value)}"
-            win.addnstr(row, BORDER_PAD, line, max_x - BORDER_PAD * 2 - 1)
+            line = f"{marker}{_tagged(option.label, option.value == inherited_value)}"
+            window.addnstr(row, BORDER_PAD, line, max_x - BORDER_PAD * 2 - 1)
 
             if is_cursor:
                 # fill rest of line with highlight
                 remaining = max_x - BORDER_PAD * 2 - len(line) - 1
                 if remaining > 0:
-                    win.addstr(" " * remaining)
-                win.attroff(curses.color_pair(6) | curses.A_BOLD)
+                    window.addstr(" " * remaining)
+                window.attroff(curses.color_pair(6) | curses.A_BOLD)
             else:
-                win.attroff(curses.color_pair(4))
+                window.attroff(curses.color_pair(4))
 
         # scroll indicators
         if scroll_offset > 0:
-            win.addstr(visible_start - 1, max_x - BORDER_PAD - 3, "▲", curses.color_pair(3))
+            window.addstr(visible_start - 1, max_x - BORDER_PAD - 3, "▲", curses.color_pair(3))
         if scroll_offset + max_visible < len(options):
-            win.addstr(
+            window.addstr(
                 visible_start + max_visible, max_x - BORDER_PAD - 3, "▼", curses.color_pair(3)
             )
 
-        _draw_help(win, "[↑↓] Navigate  [Enter] Select  [q] Quit")
-        win.refresh()
+        _draw_help(window, "[↑↓] Navigate  [Enter] Select  [q] Quit")
+        window.refresh()
 
-        key = win.getch()
+        key = window.getch()
         if key == curses.KEY_UP and cursor > 0:
             cursor -= 1
         elif key == curses.KEY_DOWN and cursor < len(options) - 1:
@@ -148,7 +148,7 @@ def radio_menu(
 
 
 def checkbox_menu(
-    win: curses.window,
+    window: curses.window,
     title: str,
     options: list[MenuOption],
     inherited_values: list[str] | None = None,
@@ -159,14 +159,14 @@ def checkbox_menu(
     checked = set(inherited)
 
     while True:
-        win.erase()
-        _draw_title(win, title)
-        max_y, max_x = win.getmaxyx()
+        window.erase()
+        _draw_title(window, title)
+        max_y, max_x = window.getmaxyx()
 
         if description:
-            win.attron(curses.color_pair(4))
-            win.addstr(CONTENT_START - 1, BORDER_PAD, description[: max_x - BORDER_PAD * 2 - 1])
-            win.attroff(curses.color_pair(4))
+            window.attron(curses.color_pair(4))
+            window.addstr(CONTENT_START - 1, BORDER_PAD, description[: max_x - BORDER_PAD * 2 - 1])
+            window.attroff(curses.color_pair(4))
 
         visible_start = CONTENT_START + (1 if description else 0)
         max_visible = max_y - visible_start - HELP_ROW_OFFSET - 1
@@ -175,54 +175,54 @@ def checkbox_menu(
         if cursor >= max_visible:
             scroll_offset = cursor - max_visible + 1
 
-        for i in range(min(len(options), max_visible)):
-            idx = i + scroll_offset
-            if idx >= len(options):
+        for visible_row in range(min(len(options), max_visible)):
+            option_index = visible_row + scroll_offset
+            if option_index >= len(options):
                 break
 
-            opt = options[idx]
-            row = visible_start + i
-            is_cursor = idx == cursor
-            is_checked = opt.value in checked
+            option = options[option_index]
+            row = visible_start + visible_row
+            is_cursor = option_index == cursor
+            is_checked = option.value in checked
 
             checkbox = "[✓]" if is_checked else "[ ]"
 
             if is_cursor:
-                win.attron(curses.color_pair(6) | curses.A_BOLD)
+                window.attron(curses.color_pair(6) | curses.A_BOLD)
             elif is_checked:
-                win.attron(curses.color_pair(2))
+                window.attron(curses.color_pair(2))
             else:
-                win.attron(curses.color_pair(4))
+                window.attron(curses.color_pair(4))
 
-            line = f" {checkbox} {_tagged(opt.label, opt.value in inherited)}"
-            win.addnstr(row, BORDER_PAD, line, max_x - BORDER_PAD * 2 - 1)
+            line = f" {checkbox} {_tagged(option.label, option.value in inherited)}"
+            window.addnstr(row, BORDER_PAD, line, max_x - BORDER_PAD * 2 - 1)
 
             if is_cursor:
                 remaining = max_x - BORDER_PAD * 2 - len(line) - 1
                 if remaining > 0:
-                    win.addstr(" " * remaining)
-                win.attroff(curses.color_pair(6) | curses.A_BOLD)
+                    window.addstr(" " * remaining)
+                window.attroff(curses.color_pair(6) | curses.A_BOLD)
             elif is_checked:
-                win.attroff(curses.color_pair(2))
+                window.attroff(curses.color_pair(2))
             else:
-                win.attroff(curses.color_pair(4))
+                window.attroff(curses.color_pair(4))
 
-        _draw_help(win, "[↑↓] Navigate  [Space] Toggle  [Enter] Confirm  [q] Quit")
-        win.refresh()
+        _draw_help(window, "[↑↓] Navigate  [Space] Toggle  [Enter] Confirm  [q] Quit")
+        window.refresh()
 
-        key = win.getch()
+        key = window.getch()
         if key == curses.KEY_UP and cursor > 0:
             cursor -= 1
         elif key == curses.KEY_DOWN and cursor < len(options) - 1:
             cursor += 1
         elif key == KEY_SPACE:
-            val = options[cursor].value
-            if val in checked:
-                checked.discard(val)
+            toggled_value = options[cursor].value
+            if toggled_value in checked:
+                checked.discard(toggled_value)
             else:
-                checked.add(val)
+                checked.add(toggled_value)
         elif key in ENTER_KEYS:
-            return [opt.value for opt in options if opt.value in checked]
+            return [option.value for option in options if option.value in checked]
         elif key == KEY_Q:
             raise KeyboardInterrupt("user quit")
 
@@ -266,16 +266,16 @@ def _inherited_hint(entry: TextEntry, masked: bool) -> str:
 
 
 def _draw_text_entry(
-    win: curses.window, title: str, prompt: str, entry: TextEntry, masked: bool
+    window: curses.window, title: str, prompt: str, entry: TextEntry, masked: bool
 ) -> None:
-    win.erase()
-    _draw_title(win, title)
-    _max_y, max_x = win.getmaxyx()
+    window.erase()
+    _draw_title(window, title)
+    _max_y, max_x = window.getmaxyx()
     line_width = max_x - BORDER_PAD * 2 - 1
 
-    win.attron(curses.color_pair(4))
-    win.addstr(CONTENT_START, BORDER_PAD, prompt)
-    win.attroff(curses.color_pair(4))
+    window.attron(curses.color_pair(4))
+    window.addstr(CONTENT_START, BORDER_PAD, prompt)
+    window.attroff(curses.color_pair(4))
 
     # draw input field
     field_row = CONTENT_START + 2
@@ -283,31 +283,31 @@ def _draw_text_entry(
     display_text = "*" * len(entry.typed) if masked else entry.typed
 
     # input box border
-    win.addstr(field_row - 1, BORDER_PAD, "┌" + "─" * (field_width + 2) + "┐")
-    win.addstr(field_row, BORDER_PAD, "│ ")
-    win.attron(curses.color_pair(1))
+    window.addstr(field_row - 1, BORDER_PAD, "┌" + "─" * (field_width + 2) + "┐")
+    window.addstr(field_row, BORDER_PAD, "│ ")
+    window.attron(curses.color_pair(1))
     visible_text = display_text[-field_width:]
-    win.addstr(visible_text.ljust(field_width))
-    win.attroff(curses.color_pair(1))
-    win.addstr(" │")
-    win.addstr(field_row + 1, BORDER_PAD, "└" + "─" * (field_width + 2) + "┘")
+    window.addstr(visible_text.ljust(field_width))
+    window.attroff(curses.color_pair(1))
+    window.addstr(" │")
+    window.addstr(field_row + 1, BORDER_PAD, "└" + "─" * (field_width + 2) + "┘")
 
     if entry.inherited:
-        win.attron(curses.color_pair(3))
-        win.addnstr(field_row + 3, BORDER_PAD, _inherited_hint(entry, masked), line_width)
-        win.attroff(curses.color_pair(3))
+        window.attron(curses.color_pair(3))
+        window.addnstr(field_row + 3, BORDER_PAD, _inherited_hint(entry, masked), line_width)
+        window.attroff(curses.color_pair(3))
 
     if entry.error:
-        win.attron(curses.color_pair(5))
-        win.addnstr(field_row + 4, BORDER_PAD, entry.error, line_width)
-        win.attroff(curses.color_pair(5))
+        window.attron(curses.color_pair(5))
+        window.addnstr(field_row + 4, BORDER_PAD, entry.error, line_width)
+        window.attroff(curses.color_pair(5))
 
-    _draw_help(win, "[Enter] Confirm  [Esc] Clear  [Ctrl+C] Quit")
-    win.refresh()
+    _draw_help(window, "[Enter] Confirm  [Esc] Clear  [Ctrl+C] Quit")
+    window.refresh()
 
 
 def text_input(
-    win: curses.window,
+    window: curses.window,
     title: str,
     prompt: str,
     inherited: str = "",
@@ -316,46 +316,46 @@ def text_input(
 ) -> str:
     entry = TextEntry(inherited=inherited, required=required)
     while True:
-        _draw_text_entry(win, title, prompt, entry, masked)
-        submitted = entry.press(win.getch())
+        _draw_text_entry(window, title, prompt, entry, masked)
+        submitted = entry.press(window.getch())
         if submitted is not None:
             return submitted
 
 
 def password_input_with_confirm(
-    win: curses.window,
+    window: curses.window,
     title: str,
     prompt: str,
 ) -> str:
     while True:
-        password = text_input(win, title, prompt, required=True, masked=True)
-        confirm = text_input(win, title, "Confirm password:", required=True, masked=True)
+        password = text_input(window, title, prompt, required=True, masked=True)
+        confirm = text_input(window, title, "Confirm password:", required=True, masked=True)
 
         if password == confirm:
             return password
 
-        win.erase()
-        _draw_title(win, title)
-        win.attron(curses.color_pair(5) | curses.A_BOLD)
-        win.addstr(CONTENT_START + 2, BORDER_PAD, "Passwords do not match. Try again.")
-        win.attroff(curses.color_pair(5) | curses.A_BOLD)
-        _draw_help(win, "Press any key to retry...")
-        win.refresh()
-        win.getch()
+        window.erase()
+        _draw_title(window, title)
+        window.attron(curses.color_pair(5) | curses.A_BOLD)
+        window.addstr(CONTENT_START + 2, BORDER_PAD, "Passwords do not match. Try again.")
+        window.attroff(curses.color_pair(5) | curses.A_BOLD)
+        _draw_help(window, "Press any key to retry...")
+        window.refresh()
+        window.getch()
 
 
 # items are (label, value) pairs; a "Group.Field" label is listed under its group
 def confirm_screen(
-    win: curses.window,
+    window: curses.window,
     title: str,
     items: list[tuple[str, str]],
 ) -> bool:
     scroll = 0
 
     while True:
-        win.erase()
-        _draw_title(win, title)
-        max_y, max_x = win.getmaxyx()
+        window.erase()
+        _draw_title(window, title)
+        max_y, max_x = window.getmaxyx()
 
         visible_start = CONTENT_START
         max_visible = max_y - visible_start - HELP_ROW_OFFSET - 3
@@ -375,49 +375,49 @@ def confirm_screen(
             else:
                 display_lines.append((f"  {label:<27} {value}", "item", False))
 
-        for i in range(min(len(display_lines), max_visible)):
-            idx = i + scroll
-            if idx >= len(display_lines):
+        for visible_row in range(min(len(display_lines), max_visible)):
+            line_index = visible_row + scroll
+            if line_index >= len(display_lines):
                 break
 
-            text, _style, is_header = display_lines[idx]
-            row = visible_start + i
+            text, _style, is_header = display_lines[line_index]
+            row = visible_start + visible_row
 
             if is_header:
-                win.attron(curses.color_pair(1) | curses.A_BOLD)
+                window.attron(curses.color_pair(1) | curses.A_BOLD)
             else:
-                win.attron(curses.color_pair(4))
+                window.attron(curses.color_pair(4))
 
-            win.addnstr(row, BORDER_PAD, text, max_x - BORDER_PAD * 2 - 1)
+            window.addnstr(row, BORDER_PAD, text, max_x - BORDER_PAD * 2 - 1)
 
             if is_header:
-                win.attroff(curses.color_pair(1) | curses.A_BOLD)
+                window.attroff(curses.color_pair(1) | curses.A_BOLD)
             else:
-                win.attroff(curses.color_pair(4))
+                window.attroff(curses.color_pair(4))
 
         # scroll indicators
         if scroll > 0:
-            win.addstr(visible_start - 1, max_x - BORDER_PAD - 3, "▲", curses.color_pair(3))
+            window.addstr(visible_start - 1, max_x - BORDER_PAD - 3, "▲", curses.color_pair(3))
         if scroll + max_visible < len(display_lines):
             row_ind = visible_start + max_visible
             if row_ind < max_y - 1:
-                win.addstr(row_ind, max_x - BORDER_PAD - 3, "▼", curses.color_pair(3))
+                window.addstr(row_ind, max_x - BORDER_PAD - 3, "▼", curses.color_pair(3))
 
         # confirmation prompt
         confirm_row = max_y - HELP_ROW_OFFSET - 1
-        win.attron(curses.color_pair(5) | curses.A_BOLD)
-        win.addnstr(
+        window.attron(curses.color_pair(5) | curses.A_BOLD)
+        window.addnstr(
             confirm_row,
             BORDER_PAD,
             "Proceed with installation? [y/n]",
             max_x - BORDER_PAD * 2 - 1,
         )
-        win.attroff(curses.color_pair(5) | curses.A_BOLD)
+        window.attroff(curses.color_pair(5) | curses.A_BOLD)
 
-        _draw_help(win, "[↑↓] Scroll  [y] Confirm  [n] Cancel")
-        win.refresh()
+        _draw_help(window, "[↑↓] Scroll  [y] Confirm  [n] Cancel")
+        window.refresh()
 
-        key = win.getch()
+        key = window.getch()
         if key == curses.KEY_UP and scroll > 0:
             scroll -= 1
         elif key == curses.KEY_DOWN and scroll + max_visible < len(display_lines):
@@ -438,7 +438,7 @@ def _toggle_line(label: str, is_on: bool, inherited_on: bool) -> str:
 
 # toggles are (key, label, inherited state); returns (key, chosen state) pairs
 def toggle_menu(
-    win: curses.window,
+    window: curses.window,
     title: str,
     toggles: list[tuple[str, str, bool]],
     description: str = "",
@@ -447,42 +447,42 @@ def toggle_menu(
     states = {key: inherited for key, _, inherited in toggles}
 
     while True:
-        win.erase()
-        _draw_title(win, title)
-        _max_y, max_x = win.getmaxyx()
+        window.erase()
+        _draw_title(window, title)
+        _max_y, max_x = window.getmaxyx()
 
         if description:
-            win.attron(curses.color_pair(4))
-            win.addstr(CONTENT_START - 1, BORDER_PAD, description[: max_x - BORDER_PAD * 2 - 1])
-            win.attroff(curses.color_pair(4))
+            window.attron(curses.color_pair(4))
+            window.addstr(CONTENT_START - 1, BORDER_PAD, description[: max_x - BORDER_PAD * 2 - 1])
+            window.attroff(curses.color_pair(4))
 
         visible_start = CONTENT_START + (1 if description else 0)
 
-        for i, (key, label, inherited_on) in enumerate(toggles):
-            row = visible_start + i
-            is_cursor = i == cursor
+        for toggle_index, (key, label, inherited_on) in enumerate(toggles):
+            row = visible_start + toggle_index
+            is_cursor = toggle_index == cursor
             is_on = states[key]
 
             if is_cursor:
-                win.attron(curses.color_pair(6) | curses.A_BOLD)
+                window.attron(curses.color_pair(6) | curses.A_BOLD)
             else:
-                win.attron(curses.color_pair(2) if is_on else curses.color_pair(4))
+                window.attron(curses.color_pair(2) if is_on else curses.color_pair(4))
 
             line = _toggle_line(label, is_on, inherited_on)
-            win.addnstr(row, BORDER_PAD, line, max_x - BORDER_PAD * 2 - 1)
+            window.addnstr(row, BORDER_PAD, line, max_x - BORDER_PAD * 2 - 1)
 
             if is_cursor:
                 remaining = max_x - BORDER_PAD * 2 - len(line) - 1
                 if remaining > 0:
-                    win.addstr(" " * remaining)
-                win.attroff(curses.color_pair(6) | curses.A_BOLD)
+                    window.addstr(" " * remaining)
+                window.attroff(curses.color_pair(6) | curses.A_BOLD)
             else:
-                win.attroff(curses.color_pair(2) if is_on else curses.color_pair(4))
+                window.attroff(curses.color_pair(2) if is_on else curses.color_pair(4))
 
-        _draw_help(win, "[↑↓] Navigate  [Space/Enter] Toggle  [Tab] Continue  [q] Quit")
-        win.refresh()
+        _draw_help(window, "[↑↓] Navigate  [Space/Enter] Toggle  [Tab] Continue  [q] Quit")
+        window.refresh()
 
-        key_pressed = win.getch()
+        key_pressed = window.getch()
         if key_pressed == curses.KEY_UP and cursor > 0:
             cursor -= 1
         elif key_pressed == curses.KEY_DOWN and cursor < len(toggles) - 1:
@@ -491,29 +491,29 @@ def toggle_menu(
             toggle_key = toggles[cursor][0]
             states[toggle_key] = not states[toggle_key]
         elif key_pressed == KEY_TAB:
-            return [(k, states[k]) for k, _, _ in toggles]
+            return [(toggle_key, states[toggle_key]) for toggle_key, _, _ in toggles]
         elif key_pressed == KEY_Q:
             raise KeyboardInterrupt("user quit")
 
 
 def info_screen(
-    win: curses.window,
+    window: curses.window,
     title: str,
     message: str,
 ) -> None:
-    win.erase()
-    _draw_title(win, title)
-    max_y, max_x = win.getmaxyx()
+    window.erase()
+    _draw_title(window, title)
+    max_y, max_x = window.getmaxyx()
 
     lines = message.split("\n")
-    for i, line in enumerate(lines):
-        row = CONTENT_START + i
+    for line_number, line in enumerate(lines):
+        row = CONTENT_START + line_number
         if row >= max_y - HELP_ROW_OFFSET:
             break
-        win.attron(curses.color_pair(4))
-        win.addnstr(row, BORDER_PAD, line, max_x - BORDER_PAD * 2 - 1)
-        win.attroff(curses.color_pair(4))
+        window.attron(curses.color_pair(4))
+        window.addnstr(row, BORDER_PAD, line, max_x - BORDER_PAD * 2 - 1)
+        window.attroff(curses.color_pair(4))
 
-    _draw_help(win, "Press any key to continue...")
-    win.refresh()
-    win.getch()
+    _draw_help(window, "Press any key to continue...")
+    window.refresh()
+    window.getch()

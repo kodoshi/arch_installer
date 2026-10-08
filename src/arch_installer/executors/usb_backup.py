@@ -16,7 +16,7 @@ from arch_installer.config.models import (
 from arch_installer.errors import ConfigurationError
 from arch_installer.executors.base import (
     Executor,
-    dir_exists,
+    directory_exists,
     is_mountpoint,
     path_exists,
     write_file,
@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 
 BACKUP_PARTITION_NUMBER = 4
 BACKUP_MOUNT = "/mnt/usb-backup"
-CUSTOM_ITEMS_DIR = "custom"
+CUSTOM_ITEMS_DIRECTORY = "custom"
 
 BACKUP_ITEMS = {
     BackupCategory.DOTFILES: (
@@ -133,23 +133,24 @@ class UsbBackupExecutor(Executor):
     def _copy_items(self, categories: tuple[BackupCategory, ...]) -> list[str]:
         groups = [(str(category), BACKUP_ITEMS[category]) for category in categories]
         if self._config.sync.backup_items:
-            groups.append((CUSTOM_ITEMS_DIR, self._config.sync.backup_items))
+            groups.append((CUSTOM_ITEMS_DIRECTORY, self._config.sync.backup_items))
 
         items_backed_up = []
-        for group_dir, items in groups:
-            self._runner.run(f"mkdir -p {BACKUP_MOUNT}/{group_dir}")
+        for group_directory, items in groups:
+            self._runner.run(f"mkdir -p {BACKUP_MOUNT}/{group_directory}")
             for item in items:
                 if self._copy_item(
-                    self._expand_home(item.source_path), f"{BACKUP_MOUNT}/{group_dir}/{item.name}"
+                    self._expand_home(item.source_path),
+                    f"{BACKUP_MOUNT}/{group_directory}/{item.name}",
                 ):
-                    items_backed_up.append(f"{group_dir}/{item.name}")
+                    items_backed_up.append(f"{group_directory}/{item.name}")
                     logger.debug("Backed up %s (%s)", item.name, item.description)
         return items_backed_up
 
     def _copy_item(self, source: str, destination: str) -> bool:
         if not path_exists(self._runner, source):
             return False
-        if dir_exists(self._runner, source):
+        if directory_exists(self._runner, source):
             self._runner.run(f"mkdir -p {destination}")
             self._runner.run(f"rsync -a --delete {source}/ {destination}/")
         else:
@@ -164,14 +165,14 @@ class UsbBackupExecutor(Executor):
         return [name for name in result.stdout.split() if name]
 
     def _write_config_exports(self, package_names: list[str]) -> None:
-        config_dir = f"{BACKUP_MOUNT}/config"
-        self._runner.run(f"mkdir -p {config_dir}")
+        config_directory = f"{BACKUP_MOUNT}/config"
+        self._runner.run(f"mkdir -p {config_directory}")
         write_file(
-            self._runner, f"{config_dir}/package_catalog.yaml", package_catalog(package_names)
+            self._runner, f"{config_directory}/package_catalog.yaml", package_catalog(package_names)
         )
         write_file(
             self._runner,
-            f"{config_dir}/config.yaml",
+            f"{config_directory}/config.yaml",
             yaml.safe_dump(
                 exportable_config(self._config), default_flow_style=False, sort_keys=False
             ),

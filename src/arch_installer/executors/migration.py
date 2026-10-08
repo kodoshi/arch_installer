@@ -14,18 +14,18 @@ from pathlib import Path
 
 from arch_installer.errors import MigrationError
 from arch_installer.executors.base import (
-    SBCTL_DIR,
-    SBCTL_LEGACY_DIR,
+    SBCTL_DIRECTORY,
+    SBCTL_LEGACY_DIRECTORY,
     TARGET_ROOT,
     Executor,
-    dir_exists,
+    directory_exists,
     path_exists,
 )
 
 logger = logging.getLogger(__name__)
 
-STAGING_DIR = "/tmp/migration-staging"
-OLD_MOUNT_DIR = "/tmp/old-system"
+STAGING_DIRECTORY = "/tmp/migration-staging"
+OLD_MOUNT_DIRECTORY = "/tmp/old-system"
 OLD_MAPPER_NAME = "oldcryptroot"
 # room left free in the staging filesystem on top of the data itself
 STAGING_HEADROOM_MB = 256
@@ -33,7 +33,7 @@ STAGING_HEADROOM_MB = 256
 
 def path_in_old_root(path: str) -> str:
     # the old system's / lives in the @ subvolume of the btrfs top level
-    return f"{OLD_MOUNT_DIR}/@/{path.lstrip('/')}"
+    return f"{OLD_MOUNT_DIRECTORY}/@/{path.lstrip('/')}"
 
 
 @dataclass(frozen=True)
@@ -42,7 +42,7 @@ class ExistingInstallInfo:
     root_partition: str
     home_subvolume: str
     home_size_mb: int
-    secure_boot_dir: str
+    secure_boot_directory: str
 
 
 class MigrationStagingExecutor(Executor):
@@ -56,7 +56,7 @@ class MigrationStagingExecutor(Executor):
                 "Existing install on %s: home %sMB, secure boot keys: %s",
                 existing.root_partition,
                 existing.home_size_mb,
-                existing.secure_boot_dir or "none",
+                existing.secure_boot_directory or "none",
             )
             self._ensure_staging_space(existing)
             self._copy_to_staging(existing)
@@ -90,9 +90,9 @@ class MigrationStagingExecutor(Executor):
             )
 
         # subvolid=5 is the btrfs top level, where every subvolume is visible
-        self._runner.run(f"mkdir -p {OLD_MOUNT_DIR}")
+        self._runner.run(f"mkdir -p {OLD_MOUNT_DIRECTORY}")
         mounted = self._runner.run(
-            f"mount -o subvolid=5 /dev/mapper/{OLD_MAPPER_NAME} {OLD_MOUNT_DIR}",
+            f"mount -o subvolid=5 /dev/mapper/{OLD_MAPPER_NAME} {OLD_MOUNT_DIRECTORY}",
             raise_on_nonzero_exit=False,
         )
         if not mounted.success:
@@ -100,29 +100,29 @@ class MigrationStagingExecutor(Executor):
             raise MigrationError(f"Could not mount the existing system: {mounted.stderr.strip()}")
 
     def _unmount_and_close(self) -> None:
-        self._runner.run(f"umount {OLD_MOUNT_DIR}", raise_on_nonzero_exit=False)
+        self._runner.run(f"umount {OLD_MOUNT_DIRECTORY}", raise_on_nonzero_exit=False)
         self._runner.run(f"cryptsetup close {OLD_MAPPER_NAME}", raise_on_nonzero_exit=False)
-        self._runner.run(f"rmdir {OLD_MOUNT_DIR}", raise_on_nonzero_exit=False)
+        self._runner.run(f"rmdir {OLD_MOUNT_DIRECTORY}", raise_on_nonzero_exit=False)
 
     def _inspect_mounted_system(self, disk: str, root_partition: str) -> ExistingInstallInfo:
         subvolumes = self._runner.run(
-            f"btrfs subvolume list {OLD_MOUNT_DIR}", raise_on_nonzero_exit=False
+            f"btrfs subvolume list {OLD_MOUNT_DIRECTORY}", raise_on_nonzero_exit=False
         ).stdout
         home_subvolume = "@home" if "@home" in subvolumes else ""
         return ExistingInstallInfo(
             disk=disk,
             root_partition=root_partition,
             home_subvolume=home_subvolume,
-            home_size_mb=self._size_mb(f"{OLD_MOUNT_DIR}/{home_subvolume}")
+            home_size_mb=self._size_mb(f"{OLD_MOUNT_DIRECTORY}/{home_subvolume}")
             if home_subvolume
             else 0,
-            secure_boot_dir=self._find_secure_boot_dir(),
+            secure_boot_directory=self._find_secure_boot_directory(),
         )
 
-    def _find_secure_boot_dir(self) -> str:
-        for sbctl_dir in (SBCTL_DIR, SBCTL_LEGACY_DIR):
-            candidate = path_in_old_root(sbctl_dir)
-            if dir_exists(self._runner, f"{candidate}/keys"):
+    def _find_secure_boot_directory(self) -> str:
+        for sbctl_directory in (SBCTL_DIRECTORY, SBCTL_LEGACY_DIRECTORY):
+            candidate = path_in_old_root(sbctl_directory)
+            if directory_exists(self._runner, f"{candidate}/keys"):
                 return candidate
         return ""
 
@@ -134,7 +134,7 @@ class MigrationStagingExecutor(Executor):
         for path in migration.additional_paths:
             required_mb += self._size_mb(path_in_old_root(path))
 
-        staging_parent = str(Path(STAGING_DIR).parent)
+        staging_parent = str(Path(STAGING_DIRECTORY).parent)
         df_output = self._runner.run(
             f"df --output=avail -m {staging_parent}", raise_on_nonzero_exit=False
         )
@@ -151,24 +151,24 @@ class MigrationStagingExecutor(Executor):
 
     def _copy_to_staging(self, existing: ExistingInstallInfo) -> None:
         migration = self._config.migration
-        self._runner.run(f"rm -rf {STAGING_DIR}")
-        self._runner.run(f"mkdir -p {STAGING_DIR}")
+        self._runner.run(f"rm -rf {STAGING_DIRECTORY}")
+        self._runner.run(f"mkdir -p {STAGING_DIRECTORY}")
 
         if migration.preserve_home and existing.home_subvolume:
-            self._copy_into_staging(f"{OLD_MOUNT_DIR}/{existing.home_subvolume}", "home")
-        if migration.preserve_secure_boot_keys and existing.secure_boot_dir:
-            self._copy_into_staging(existing.secure_boot_dir, "sbctl")
+            self._copy_into_staging(f"{OLD_MOUNT_DIRECTORY}/{existing.home_subvolume}", "home")
+        if migration.preserve_secure_boot_keys and existing.secure_boot_directory:
+            self._copy_into_staging(existing.secure_boot_directory, "sbctl")
         for path in migration.additional_paths:
             source = path_in_old_root(path)
             if path_exists(self._runner, source):
-                destination = f"{STAGING_DIR}/additional/{path.lstrip('/')}"
+                destination = f"{STAGING_DIRECTORY}/additional/{path.lstrip('/')}"
                 self._runner.run(f"mkdir -p {Path(destination).parent}")
                 self._runner.run(f"cp -a {source} {destination}")
 
-    def _copy_into_staging(self, source_dir: str, staging_name: str) -> None:
-        logger.info("Staging %s...", source_dir)
-        self._runner.run(f"mkdir -p {STAGING_DIR}/{staging_name}")
-        self._runner.run(f"cp -a {source_dir}/. {STAGING_DIR}/{staging_name}/")
+    def _copy_into_staging(self, source_directory: str, staging_name: str) -> None:
+        logger.info("Staging %s...", source_directory)
+        self._runner.run(f"mkdir -p {STAGING_DIRECTORY}/{staging_name}")
+        self._runner.run(f"cp -a {source_directory}/. {STAGING_DIRECTORY}/{staging_name}/")
 
     def _size_mb(self, path: str) -> int:
         du_output = self._runner.run(f"du -sm {path}", raise_on_nonzero_exit=False).stdout.split()
@@ -177,23 +177,23 @@ class MigrationStagingExecutor(Executor):
 
 class MigrationRestoreExecutor(Executor):
     def execute(self) -> None:
-        if not dir_exists(self._runner, STAGING_DIR):
+        if not directory_exists(self._runner, STAGING_DIRECTORY):
             logger.info("No staging data to restore")
             return
 
         staged_destinations = (
-            (f"{STAGING_DIR}/home", f"{TARGET_ROOT}/home"),
-            (f"{STAGING_DIR}/sbctl", f"{TARGET_ROOT}{SBCTL_DIR}"),
-            (f"{STAGING_DIR}/additional", TARGET_ROOT),
+            (f"{STAGING_DIRECTORY}/home", f"{TARGET_ROOT}/home"),
+            (f"{STAGING_DIRECTORY}/sbctl", f"{TARGET_ROOT}{SBCTL_DIRECTORY}"),
+            (f"{STAGING_DIRECTORY}/additional", TARGET_ROOT),
         )
-        for staged_dir, destination in staged_destinations:
-            if dir_exists(self._runner, staged_dir):
+        for staged_directory, destination in staged_destinations:
+            if directory_exists(self._runner, staged_directory):
                 logger.info("Restoring %s...", destination)
                 self._runner.run(f"mkdir -p {destination}")
-                self._runner.run(f"cp -a {staged_dir}/. {destination}/")
+                self._runner.run(f"cp -a {staged_directory}/. {destination}/")
 
         self._report_restored_data()
-        self._runner.run(f"rm -rf {STAGING_DIR}")
+        self._runner.run(f"rm -rf {STAGING_DIRECTORY}")
 
     def _report_restored_data(self) -> None:
         migration = self._config.migration
@@ -203,7 +203,7 @@ class MigrationRestoreExecutor(Executor):
             ).stdout
             if not home_listing.strip():
                 logger.warning("Restored home directory is empty")
-        if migration.preserve_secure_boot_keys and not dir_exists(
-            self._runner, f"{TARGET_ROOT}{SBCTL_DIR}/keys"
+        if migration.preserve_secure_boot_keys and not directory_exists(
+            self._runner, f"{TARGET_ROOT}{SBCTL_DIRECTORY}/keys"
         ):
             logger.warning("Secure boot keys were not restored")

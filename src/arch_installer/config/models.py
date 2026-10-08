@@ -156,14 +156,6 @@ class StorageConfig:
     swap: SwapConfig
 
     @property
-    def efi_partition(self) -> str:
-        return derive_partition_path(self.target_disk, 1)
-
-    @property
-    def root_partition(self) -> str:
-        return derive_partition_path(self.target_disk, 2)
-
-    @property
     def cryptroot_device(self) -> str:
         return f"/dev/mapper/{CRYPTROOT_MAPPER_NAME}"
 
@@ -374,6 +366,7 @@ class BackupItemConfig:
 
 @dataclass(frozen=True)
 class SyncConfig:
+    backup_partition: str
     backup_items: tuple[BackupItemConfig, ...]
     backup_categories: tuple[BackupCategory, ...]
 
@@ -386,18 +379,31 @@ class MigrationConfig:
     additional_paths: tuple[str, ...]
 
 
-# the only section that keeps defaults: tests/unit/test_usb_boot.py builds it from a few
-# fields and is left untouched while the USB boot drive work is in progress. the config
-# builder still requires every field, so these defaults never reach an installation
+# the USB boot drive layout. its EFI partition is the system's only one and its header
+# partition holds the LUKS header, so the internal disk keeps nothing but ciphertext
+USB_EFI_PARTITION_NUMBER = 1
+USB_LUKS_HEADER_PARTITION_NUMBER = 2
+USB_RECOVERY_PARTITION_NUMBER = 3
+
+
 @dataclass(frozen=True)
 class UsbBootConfig:
-    enabled: bool = False
-    device: str = ""
-    efi_size_mb: int = 512
-    iso_partition_size_mb: int = 1024
-    iso_path: str = ""
-    detached_luks_header: bool = True
-    backup_partition_size_mb: int = 0
+    enabled: bool
+    device: str
+    recovery_system: bool
+    iso_path: str
+
+    @property
+    def efi_partition(self) -> str:
+        return derive_partition_path(self.device, USB_EFI_PARTITION_NUMBER)
+
+    @property
+    def luks_header_partition(self) -> str:
+        return derive_partition_path(self.device, USB_LUKS_HEADER_PARTITION_NUMBER)
+
+    @property
+    def recovery_partition(self) -> str:
+        return derive_partition_path(self.device, USB_RECOVERY_PARTITION_NUMBER)
 
 
 # the credential each encrypted secret holds; bound into its ciphertext, so the two
@@ -445,6 +451,27 @@ class InstallerConfig:
     secrets: EncryptedSecretsConfig
     # never read from config.yaml in plain text: env vars, the TUI or decrypted secrets
     credentials: Credentials
+
+    # the device the ciphertext fills: with a USB boot drive the whole internal disk, which
+    # then has no partition table, otherwise the disk's second partition
+    @property
+    def encrypted_device(self) -> str:
+        if self.usb_boot.enabled:
+            return self.storage.target_disk
+        return derive_partition_path(self.storage.target_disk, 2)
+
+    @property
+    def efi_partition(self) -> str:
+        if self.usb_boot.enabled:
+            return self.usb_boot.efi_partition
+        return derive_partition_path(self.storage.target_disk, 1)
+
+    # cryptsetup reads the LUKS header from here: the USB drive, or the partition itself
+    @property
+    def luks_header_device(self) -> str:
+        if self.usb_boot.enabled:
+            return self.usb_boot.luks_header_partition
+        return self.encrypted_device
 
 
 def _plain_yaml_value(value: Any) -> Any:

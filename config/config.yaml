@@ -40,7 +40,8 @@ storage:
   # can be overridden by TARGET_DISK env var
   # target_disk: /dev/nvme0n1
 
-  # EFI partition size in MiB (2GB for multiple UKIs including snapshots)
+  # EFI partition size in MiB (2GB for multiple UKIs including snapshots); with a USB
+  # boot drive this is the size of the drive's EFI partition, the disk then has none
   efi_size_mb: 2048
 
   # disk wipe method: quick, secure, discard, skip
@@ -48,6 +49,7 @@ storage:
   # secure: fill with random data via LUKS (slow, best for encryption)
   # discard: SSD blkdiscard (fast, but leaks usage patterns)
   # skip: keep existing partitions (if you are recovering a partial install)
+  # a USB boot drive needs secure (or skip on a disk filled before)
   wipe_method: quick
 
   # LUKS2 encryption settings
@@ -446,8 +448,13 @@ notifications:
   enabled: true
 
 # Sync Configuration
-# What usb-backup copies to the backup partition of the USB drive.
+# What `make backup_to_usb` copies to a backup partition. It is mounted, never formatted,
+# and it is not the USB boot drive. The copy is in plain text unless the partition sits
+# on an encrypted volume.
 sync:
+  # the partition to back up to (also BACKUP_PARTITION), e.g. /dev/sdc1
+  backup_partition: ''
+
   # backup categories to include: dotfiles, keepass, browser, system
   backup_categories:
     - dotfiles
@@ -473,33 +480,25 @@ migration:
   preserve_secure_boot_keys: true
   additional_paths: []
 
-# USB Boot Drive for Plausible Deniability Encryption (PDE)
-# When enabled, EFI bootloader and LUKS headers are stored on a separate USB drive.
-# Without the USB plugged in, the main disk appears as random data and Windows boots.
-# The USB also contains a signed live Arch ISO for recovery.
+# USB Boot Drive (plausible deniability encryption, see docs/usb-boot.md)
+# The drive holds the EFI partition and the LUKS header; the internal disk keeps only
+# ciphertext, without a partition table, and nothing boots or unlocks without the drive.
+# Needs storage.wipe_method secure (or skip on a disk filled before), so the ciphertext
+# sits in random data, and a target disk with a /dev/disk/by-id name.
 usb_boot:
-  # enable USB boot drive setup
+  # also ENABLE_USB_BOOT
   enabled: false
 
-  # USB drive device path (e.g., /dev/sdb)
-  # can be overridden by USB_BOOT_DEVICE env var
+  # the whole drive is erased (also USB_BOOT_DEVICE), e.g. /dev/sdb
   device: ''
 
-  # EFI partition size on USB in MiB
-  efi_size_mb: 512
+  # a signed Arch live system on the drive, to repair the installed one
+  # (also ENABLE_RECOVERY_SYSTEM)
+  recovery_system: true
 
-  # ISO partition size on USB in MiB (must fit the Arch ISO)
-  iso_partition_size_mb: 1024
-
-  # path to the Arch Linux live ISO to copy onto USB
+  # the Arch ISO it boots: a file, or the live medium itself such as /dev/sr0
+  # (also ISO_PATH)
   iso_path: ''
-
-  # detach LUKS header from main disk and store on USB
-  # this makes the main disk indistinguishable from random data
-  detached_luks_header: true
-
-  # backup partition size in MiB (0 = use remaining space on USB)
-  backup_partition_size_mb: 0
 
 # Encrypted Secrets for both Non-Interactive and Interactive Mode
 # Generate encrypted passwords with `make encrypt-secrets` (it asks for the key and the

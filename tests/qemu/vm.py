@@ -81,6 +81,8 @@ class QemuConfig:
     cpus: int = 2
     disk_size_gb: int = 20
     extra_disks_gb: tuple[int, ...] = ()
+    # USB mass storage on an xHCI controller: /dev/sda, /dev/sdb... in the guest
+    usb_disks_gb: tuple[int, ...] = ()
     architecture: QemuArchitecture = QemuArchitecture.X86_64
     secure_boot: SecureBootMode = SecureBootMode.SETUP_MODE
     enable_kvm: bool = True
@@ -93,6 +95,9 @@ class QemuPaths:
     working_directory: Path
     disk_image: Path
     extra_disk_images: list[Path]
+    usb_disk_images: list[Path]
+    # the USB disks plugged in at the next start: a test unplugs one by leaving it out
+    attached_usb_disk_images: list[Path]
     ovmf_vars: Path  # writable copy of OVMF_VARS
     serial_log: Path
     pid_file: Path
@@ -197,6 +202,8 @@ class QemuVm:
             working_directory=working_directory,
             disk_image=working_directory / "disk.qcow2",
             extra_disk_images=[],
+            usb_disk_images=[],
+            attached_usb_disk_images=[],
             ovmf_vars=working_directory / "OVMF_VARS.fd",
             serial_log=working_directory / "serial.log",
             pid_file=working_directory / "qemu.pid",
@@ -208,6 +215,11 @@ class QemuVm:
             extra_path = working_directory / f"disk-extra-{index}.qcow2"
             self._create_disk_image(extra_path, size_gb)
             paths.extra_disk_images.append(extra_path)
+        for index, size_gb in enumerate(self.config.usb_disks_gb):
+            usb_path = working_directory / f"usb-disk-{index}.qcow2"
+            self._create_disk_image(usb_path, size_gb)
+            paths.usb_disk_images.append(usb_path)
+        paths.attached_usb_disk_images = list(paths.usb_disk_images)
 
         # UEFI variables (enrolled keys) live in this file, so it must be a writable copy
         shutil.copy(self.ovmf.vars_template, paths.ovmf_vars)
@@ -248,8 +260,23 @@ class QemuVm:
         if self.config.secure_boot != SecureBootMode.DISABLED:
             command += ["-global", "driver=cfi.pflash01,property=secure,value=on"]
 
-        for disk_image in [paths.disk_image, *paths.extra_disk_images]:
-            command += ["-drive", f"file={disk_image},format=qcow2,if=virtio"]
+        for index, disk_image in enumerate([paths.disk_image, *paths.extra_disk_images]):
+            # a serial number gives the disk a /dev/disk/by-id name, as real disks have
+            drive_id = f"disk-{index}"
+            command += ["-drive", f"if=none,id={drive_id},file={disk_image},format=qcow2"]
+            command += ["-device", f"virtio-blk-pci,drive={drive_id},serial=dali-disk-{index}"]
+
+        if paths.attached_usb_disk_images:
+            command += ["-device", "qemu-xhci,id=xhci"]
+        for index, usb_image in enumerate(paths.attached_usb_disk_images):
+            drive_id = f"usb-disk-{index}"
+            # without the live ISO the firmware starts from the USB drive, as from a stick
+            boot_order = f",bootindex={index + 1}" if iso_path is None else ""
+            command += ["-drive", f"if=none,id={drive_id},file={usb_image},format=qcow2"]
+            command += [
+                "-device",
+                f"usb-storage,bus=xhci.0,drive={drive_id},removable=on{boot_order}",
+            ]
 
         if iso_path is not None:
             command += ["-cdrom", str(iso_path), "-boot", "d"]

@@ -17,7 +17,7 @@ partition "Phase 1: Configuration Assembly (cli.py)" {
 }
 
 partition "Phase 2: Orchestration (installer.py)" {
-    :For each step in INSTALL_STEPS whose condition holds:\nMigration staging, Storage, Pacman mirrors, Packages,\nMigration restore, System, Docker, GPU driver,\nKernel images, Bootloader, USB boot drive, Snapper,\nBootable snapshots, Snapshot notifications, Firewall;
+    :For each step in INSTALL_STEPS whose condition holds:\nMigration staging, USB boot drive, Storage, Pacman mirrors,\nPackages, Migration restore, System, Docker, GPU driver,\nKernel images, Bootloader, Recovery system, Snapper,\nBootable snapshots, Snapshot notifications, Firewall,\nUSB boot safeguards;
     :Install utility scripts\n\nWrite /etc/dali/expected-state.env\n\nWrite final_config.yaml (no passwords);
 }
 

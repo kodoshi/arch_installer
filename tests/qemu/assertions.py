@@ -38,6 +38,21 @@ class QemuAssertionError(Exception):
         self.results = results
 
 
+EFI_SYSTEM_PARTITION_TYPE = "c12a7328-f81f-11d2-ba4b-00a0c93ec93b"
+LINUX_FILESYSTEM_PARTITION_TYPE = "0fc63daf-8483-4772-8e79-3d69d8477de4"
+# prints, for a disk: the LUKS magic count (primary and secondary header) in its first
+# 64 MiB, the zero-filled MiB in its first 512 MiB, the GPT signatures in its first and
+# last MiB, and the zero-filled 4 KiB blocks in its last MiB
+CIPHERTEXT_PROBE = (
+    'import os, sys; device = open(sys.argv[1], "rb"); head = device.read(64 << 20); '
+    "device.seek(0); zeros = sum(device.read(1 << 20) == bytes(1 << 20) for _ in range(512)); "
+    "device.seek(-(1 << 20), os.SEEK_END); tail = device.read(1 << 20); "
+    'print(head.count(b"LUKS\\xba\\xbe") + head.count(b"SKUL\\xba\\xbe"), zeros, '
+    '(head[: 1 << 20] + tail).count(b"EFI PART"), '
+    "sum(tail[offset : offset + 4096] == bytes(4096) for offset in range(0, len(tail), 4096)))"
+)
+
+
 class InstallationAssertions:
     """comprehensive assertions for verifying arch installation in QEMU VM.
 
@@ -1030,179 +1045,128 @@ class InstallationAssertions:
             f"missing secure boot key files: {missing}" if missing else "all key files exist",
         )
 
-    def assert_usb_efi_files_signed(self, mount_point: str = "/mnt/usb-efi") -> AssertionResult:
-        """verify all EFI binaries on the USB are signed with secure boot keys.
-
-        checks the bootloader, recovery ISO EFI, and systemd-boot binary
-        using sbctl verify from the chroot.
-        """
-        efi_files = [
-            f"{mount_point}/EFI/BOOT/BOOTX64.EFI",
-            f"{mount_point}/EFI/systemd/systemd-bootx64.efi",
-            f"{mount_point}/EFI/recovery/archiso.efi",
-        ]
-
-        unsigned = []
-        for efi_file in efi_files:
-            code, _, _ = self._run_command(f"test -f {efi_file}")
-            if code != 0:
-                continue  # file doesn't exist, skip
-
-            # convert host path to chroot-relative path for sbctl verify
-            chroot_path = efi_file.replace("/mnt", "", 1)
-            code, stdout, _ = self._run_command(f"arch-chroot /mnt sbctl verify {chroot_path} 2>&1")
-            if code != 0 or "not signed" in stdout.lower():
-                unsigned.append(efi_file)
-
-        return self._assert(
-            "usb_efi_files_signed",
-            len(unsigned) == 0,
-            f"unsigned USB EFI files: {unsigned}" if unsigned else "all USB EFI files signed",
-        )
-
     # =========================================================================
-    # USB boot drive assertions
+    # USB boot drive assertions (plausible deniability encryption)
     # =========================================================================
 
-    def assert_usb_drive_partitioned(self, device: str = "/dev/vdb") -> AssertionResult:
-        """verify the USB drive has the expected 4-partition layout."""
-        _code, stdout, _ = self._run_command(f"lsblk -nlo TYPE {device}")
-        partition_count = stdout.strip().count("part")
-
+    def assert_internal_disk_holds_only_ciphertext(self, disk: str) -> AssertionResult:
+        # no partition table, nothing that identifies the disk, no LUKS magic, and random
+        # data from the first byte to the last
+        _, partitions, _ = self._run_command(f"lsblk -nlo TYPE {disk}")
+        _, partition_table, _ = self._run_command(f"blkid -p -o value -s PTTYPE {disk}")
+        _, filesystem_type, _ = self._run_command(f"blkid -p -o value -s TYPE {disk}")
+        luks_code, _, _ = self._run_command(f"cryptsetup isLuks {disk}")
+        _, probe, _ = self._run_command(f"python -c '{CIPHERTEXT_PROBE}' {disk}", timeout=120)
+        luks_magic, zero_mebibytes, gpt_signatures, zero_tail_blocks = [
+            *probe.split(),
+            "?",
+            "?",
+            "?",
+            "?",
+        ][:4]
+        facts = {
+            "partitions": partitions.split().count("part"),
+            "partition_table": partition_table.strip(),
+            "identifies_as": filesystem_type.strip(),
+            "is_luks": luks_code == 0,
+            "luks_magic": luks_magic,
+            "zero_mebibytes": zero_mebibytes,
+            "gpt_signatures": gpt_signatures,
+            "zero_blocks_in_last_mebibyte": zero_tail_blocks,
+        }
+        expected = {
+            "partitions": 0,
+            "partition_table": "",
+            "identifies_as": "",
+            "is_luks": False,
+            "luks_magic": "0",
+            "zero_mebibytes": "0",
+            "gpt_signatures": "0",
+            "zero_blocks_in_last_mebibyte": "0",
+        }
         return self._assert(
-            "usb_drive_partitioned",
-            partition_count >= 4,
-            f"expected 4 partitions on {device}, found {partition_count}",
-            stdout,
+            "internal_disk_holds_only_ciphertext",
+            facts == expected,
+            f"{disk} shows more than ciphertext: {facts}",
+            str(facts),
         )
 
-    def assert_usb_efi_partition_has_bootloader(
-        self, mount_point: str = "/mnt/usb-efi"
+    def assert_usb_boot_drive_layout(self, device: str, recovery_system: bool) -> AssertionResult:
+        expected = {1: "vfat", 2: "crypto_LUKS"}
+        if recovery_system:
+            expected[3] = "ext4"
+        found = {}
+        for number in expected:
+            _, filesystem, _ = self._run_command(f"blkid -p -o value -s TYPE {device}{number}")
+            found[number] = filesystem.strip()
+        _, efi_type, _ = self._run_command(f"blkid -p -o value -s PART_ENTRY_TYPE {device}1")
+        return self._assert(
+            "usb_boot_drive_layout",
+            found == expected and efi_type.strip() == EFI_SYSTEM_PARTITION_TYPE,
+            f"expected {expected} with an EFI system partition, found {found} ({efi_type.strip()})",
+        )
+
+    def assert_drive_header_unlocks(
+        self, header_partition: str, data_device: str, passphrase: str
     ) -> AssertionResult:
-        """verify USB EFI partition contains a bootloader."""
-        code, stdout, _ = self._run_command(f"ls {mount_point}/EFI/BOOT/BOOTX64.EFI 2>/dev/null")
-        has_bootloader = code == 0
-
+        code, _, stderr = self._run_command(
+            f"printf '%s' '{passphrase}' | cryptsetup open --test-passphrase "
+            f"--header {header_partition} --key-file - {data_device}",
+            timeout=120,
+        )
         return self._assert(
-            "usb_efi_has_bootloader",
-            has_bootloader,
-            f"expected BOOTX64.EFI in {mount_point}/EFI/BOOT/",
-            stdout,
+            "drive_header_unlocks_internal_disk",
+            code == 0,
+            f"{header_partition} does not unlock {data_device}: {stderr.strip()}",
         )
 
-    def assert_usb_efi_partition_has_uki_files(
-        self, mount_point: str = "/mnt/usb-efi"
-    ) -> AssertionResult:
-        """verify USB EFI partition contains .efi UKI files."""
-        code, stdout, _ = self._run_command(
-            f"find {mount_point}/EFI/Linux -name '*.efi' 2>/dev/null"
-        )
-        has_ukis = code == 0 and ".efi" in stdout
-
+    def assert_booted_through_the_detached_header(self, data_device: str) -> AssertionResult:
+        _, cmdline, _ = self._run_command("cat /proc/cmdline")
+        _, status, _ = self._run_command("cryptsetup status cryptroot")
+        backing_devices = [line.split()[-1] for line in status.splitlines() if "device:" in line]
         return self._assert(
-            "usb_efi_has_ukis",
-            has_ukis,
-            f"expected .efi UKI files in {mount_point}/EFI/Linux/",
-            stdout,
+            "booted_through_detached_header",
+            "rd.luks.data=" in cmdline
+            and "/dev/disk/by-id/" in cmdline
+            and backing_devices == [data_device],
+            f"cmdline or cryptroot do not show the detached header: {cmdline.strip()}",
+            status,
         )
 
-    def assert_usb_efi_partition_has_loader_conf(
-        self, mount_point: str = "/mnt/usb-efi"
-    ) -> AssertionResult:
-        """verify USB EFI partition contains loader.conf."""
-        code, stdout, _ = self._run_command(f"cat {mount_point}/loader/loader.conf 2>/dev/null")
-        has_loader = code == 0 and len(stdout.strip()) > 0
-
+    def assert_efi_mounted_on_demand_from(self, efi_partition: str) -> AssertionResult:
+        self._run_command("ls /efi/EFI")
+        _, source, _ = self._run_command("findmnt -n -t vfat -o SOURCE --mountpoint /efi")
+        _, fstab, _ = self._run_command("grep ' */efi' /etc/fstab || grep '/efi' /etc/fstab")
         return self._assert(
-            "usb_efi_has_loader_conf",
-            has_loader,
-            f"expected loader.conf in {mount_point}/loader/",
-            stdout,
+            "efi_mounted_on_demand",
+            source.strip() == efi_partition and "x-systemd.automount" in fstab,
+            f"/efi is {source.strip() or 'not mounted'} (fstab: {fstab.strip()})",
         )
 
-    def assert_usb_header_partition_has_luks_header(
-        self, mount_point: str = "/mnt/usb-header"
-    ) -> AssertionResult:
-        """verify USB header partition contains the detached LUKS header."""
-        code, stdout, _ = self._run_command(f"ls -la {mount_point}/luks_header.img 2>/dev/null")
-        has_header = code == 0 and "luks_header.img" in stdout
-
+    def assert_firmware_keeps_no_boot_traces(self) -> AssertionResult:
+        _, boot_entries, _ = self._run_command("efibootmgr")
+        token_code, _, _ = self._run_command("ls /sys/firmware/efi/efivars/LoaderSystemToken-*")
         return self._assert(
-            "usb_header_has_luks_header",
-            has_header,
-            f"expected luks_header.img in {mount_point}/",
-            stdout,
+            "firmware_keeps_no_boot_traces",
+            "Linux Boot Manager" not in boot_entries and token_code != 0,
+            "the firmware holds a boot entry or a systemd-boot system token",
+            boot_entries,
         )
 
-    def assert_usb_recovery_entry_exists(
-        self, mount_point: str = "/mnt/usb-efi"
-    ) -> AssertionResult:
-        """verify systemd-boot entry for recovery ISO exists."""
-        code, stdout, _ = self._run_command(
-            f"cat {mount_point}/loader/entries/archiso-recovery.conf 2>/dev/null"
+    def assert_boot_menu_lists(self, entry_ids: list[str]) -> AssertionResult:
+        return self._assert_all_present(
+            "boot_menu_entries", "bootctl list --no-pager", entry_ids, "boot entries"
         )
-        has_entry = code == 0 and "recovery" in stdout.lower()
 
+    def assert_every_boot_file_signed(self) -> AssertionResult:
+        _, stdout, _ = self._run_command("sbctl verify 2>&1")
+        plain = ANSI_COLOUR.sub("", stdout)
+        unsigned = [line.strip() for line in plain.splitlines() if "not signed" in line]
         return self._assert(
-            "usb_recovery_entry_exists",
-            has_entry,
-            f"expected archiso-recovery.conf in {mount_point}/loader/entries/",
-            stdout,
-        )
-
-    def assert_main_disk_has_no_luks_header(self, partition: str = "/dev/vda2") -> AssertionResult:
-        """verify the main disk partition has no visible LUKS header."""
-        code, stdout, _ = self._run_command(f"cryptsetup isLuks {partition} 2>&1", timeout=30)
-        # after header wipe, isLuks should fail (exit code != 0)
-        no_header = code != 0
-
-        return self._assert(
-            "main_disk_no_luks_header",
-            no_header,
-            f"main disk {partition} should not have a visible LUKS header",
-            stdout,
-        )
-
-    def assert_internal_efi_has_no_boot_files(self, efi_path: str = "/efi") -> AssertionResult:
-        """verify the internal EFI partition was wiped (no UKIs or bootloader)."""
-        code, stdout, _ = self._run_command(
-            f"find {efi_path}/EFI -name '*.efi' 2>/dev/null | wc -l"
-        )
-        efi_count = int(stdout.strip()) if code == 0 and stdout.strip().isdigit() else -1
-
-        return self._assert(
-            "internal_efi_no_boot_files",
-            efi_count == 0,
-            f"expected no .efi files in internal {efi_path}/EFI, found {efi_count}",
-            stdout,
-        )
-
-    def assert_usb_backup_partition_exists(self, device: str = "/dev/vdb") -> AssertionResult:
-        """verify the USB backup partition (partition 4) exists and is ext4."""
-        partition = f"{device}4"
-        code, stdout, _ = self._run_command(f"lsblk -nlo FSTYPE {partition} 2>/dev/null")
-        is_ext4 = code == 0 and "ext4" in stdout
-
-        return self._assert(
-            "usb_backup_partition_exists",
-            is_ext4,
-            f"expected ext4 backup partition at {partition}",
-            stdout,
-        )
-
-    def assert_usb_backup_partition_label(
-        self, device: str = "/dev/vdb", expected_label: str = "USBBACKUP"
-    ) -> AssertionResult:
-        """verify the USB backup partition has the expected label."""
-        partition = f"{device}4"
-        code, stdout, _ = self._run_command(f"lsblk -nlo LABEL {partition} 2>/dev/null")
-        has_label = code == 0 and expected_label in stdout
-
-        return self._assert(
-            "usb_backup_partition_label",
-            has_label,
-            f"expected label '{expected_label}' on {partition}, found '{stdout.strip()}'",
-            stdout,
+            "every_boot_file_signed",
+            not unsigned and "arch-recovery.efi" in plain,
+            f"unsigned: {unsigned}" if unsigned else "the recovery UKI was not verified",
+            plain,
         )
 
     def assert_usb_backup_has_manifest(

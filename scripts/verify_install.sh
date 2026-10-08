@@ -803,6 +803,55 @@ verify_fstab() {
 }
 
 
+verify_usb_boot_drive() {
+    [[ "${EXPECTED_USB_BOOT:-}" == "true" ]] || return 0
+    log_section "USB BOOT DRIVE VERIFICATION"
+
+    # the header lives on the drive: the internal disk holds ciphertext from its first
+    # byte to its last, with no partition table, filesystem or LUKS signature
+    local data_device data_type partition_table partition_count
+    data_device=$(cryptsetup status cryptroot 2>/dev/null | awk '$1 == "device:" {print $2}')
+    data_type=$(blkid -p -o value -s TYPE "$data_device" 2>/dev/null)
+    partition_table=$(blkid -p -o value -s PTTYPE "$data_device" 2>/dev/null)
+    partition_count=$(lsblk -nlo TYPE "$data_device" 2>/dev/null | grep -c part)
+    if [[ -z "$data_device" ]]; then
+        log_fail "cryptroot is not open"
+    elif [[ -n "$partition_table" || "$partition_count" -gt 0 ]]; then
+        log_fail "$data_device has a partition table (${partition_table:-partitions})"
+    elif [[ -n "$data_type" ]] || cryptsetup isLuks "$data_device" 2>/dev/null; then
+        log_fail "$data_device identifies as ${data_type:-LUKS}"
+    else
+        log_pass "$data_device carries no partition table, LUKS header or other signature"
+    fi
+
+    if grep -qE '^\s*[^#]\S*\s+/efi\s.*x-systemd\.automount' /etc/fstab; then
+        log_pass "/efi is mounted on demand from the USB boot drive"
+    else
+        log_fail "/efi is not mounted on demand (no x-systemd.automount in fstab)"
+    fi
+
+    if [[ -f /etc/pacman.d/hooks/00-usb-boot-drive.hook && -x /usr/local/bin/check-usb-boot-drive ]]; then
+        log_pass "pacman refuses boot file updates while the drive is unplugged"
+    else
+        log_fail "The USB boot drive guard (pacman hook) is missing"
+    fi
+
+    if [[ "${EXPECTED_RECOVERY_SYSTEM:-}" == "true" ]]; then
+        local recovery_uki="/efi/EFI/recovery/arch-recovery.efi"
+        if [[ -f "$recovery_uki" && -f /efi/loader/entries/arch-recovery.conf ]]; then
+            log_pass "Recovery system UKI and boot entry present"
+            if sbctl verify "$recovery_uki" 2>/dev/null | grep -q "is signed"; then
+                log_pass "Recovery system UKI is signed"
+            else
+                log_fail "Recovery system UKI is not signed"
+            fi
+        else
+            log_fail "Recovery system UKI or boot entry missing"
+        fi
+    fi
+}
+
+
 verify_firewall() {
     log_section "FIREWALL (UFW)"
 
@@ -953,6 +1002,7 @@ main() {
     verify_kernel_params
     verify_gpu
     verify_fstab
+    verify_usb_boot_drive
     verify_packages
 
     print_summary

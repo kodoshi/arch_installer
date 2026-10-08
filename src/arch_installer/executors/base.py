@@ -7,7 +7,7 @@ InstallerConfig and decides nothing about *whether* it runs; the orchestrator do
 
 from abc import ABC, abstractmethod
 
-from arch_installer.config.models import CRYPTROOT_MAPPER_NAME, InstallerConfig
+from arch_installer.config.models import InstallerConfig
 from arch_installer.core.command import CommandRunner
 
 TARGET_ROOT = "/mnt"
@@ -20,7 +20,7 @@ SBCTL_PK_KEY = f"{SBCTL_DIRECTORY}/keys/PK/PK.key"
 SBCTL_DB_KEY = f"{SBCTL_DIRECTORY}/keys/db/db.key"
 
 
-class Executor(ABC):
+class StepExecutor(ABC):
     def __init__(self, config: InstallerConfig, runner: CommandRunner) -> None:
         self._config = config
         self._runner = runner
@@ -50,26 +50,36 @@ def write_file(runner: CommandRunner, path: str, content: str) -> None:
     runner.run(f"cat > {path}", input_data=content)
 
 
-def detect_luks_uuid(runner: CommandRunner, root_partition: str) -> str | None:
-    # the open mapping is authoritative; blkid lookups are fallbacks
-    result = runner.run(f"cryptsetup status {CRYPTROOT_MAPPER_NAME}", raise_on_nonzero_exit=False)
-    if result.success:
-        for line in result.stdout.split("\n"):
-            if "device:" in line:
-                backing_device = line.split()[-1]
-                uuid = runner.run(
-                    f"blkid -s UUID -o value {backing_device}", raise_on_nonzero_exit=False
-                ).stdout.strip()
-                if uuid:
-                    return uuid
+# the header holds the UUID, so this works for a header on the partition or detached from it
+def detect_luks_uuid(runner: CommandRunner, luks_header_device: str) -> str:
+    result = runner.run(f"cryptsetup luksUUID {luks_header_device}", raise_on_nonzero_exit=False)
+    return result.stdout.strip() if result.success else ""
 
-    any_luks_uuids = runner.run(
-        "blkid -t TYPE=crypto_LUKS -s UUID -o value", raise_on_nonzero_exit=False
-    ).stdout.strip()
-    if any_luks_uuids:
-        return any_luks_uuids.split("\n")[0]
 
-    root_uuid = runner.run(
-        f"blkid -s UUID -o value {root_partition}", raise_on_nonzero_exit=False
+def partition_uuid(runner: CommandRunner, partition: str) -> str:
+    uuid = runner.run(
+        f"blkid -s PARTUUID -o value {partition}", raise_on_nonzero_exit=False
     ).stdout.strip()
-    return root_uuid or None
+    if not uuid:
+        raise RuntimeError(f"{partition} has no GPT partition UUID")
+    return uuid
+
+
+# hardware identifiers burnt into the device, unique worldwide
+UNIQUE_DISK_IDENTIFIER_PREFIXES = ("wwn-", "nvme-eui.")
+
+
+# a disk without a partition table has no partition UUID, so the boot names it by the
+# /dev/disk/by-id link udev derives from its hardware (model and serial, WWN or EUI)
+def stable_disk_path(runner: CommandRunner, disk: str) -> str:
+    links = runner.run(
+        f"target=$(readlink -f {disk}); for link in /dev/disk/by-id/*; do "
+        f'[ "$(readlink -f "$link")" = "$target" ] && echo "$link"; done',
+        raise_on_nonzero_exit=False,
+    ).stdout.split()
+    unique = [
+        link
+        for link in links
+        if link.rsplit("/", 1)[-1].startswith(UNIQUE_DISK_IDENTIFIER_PREFIXES)
+    ]
+    return sorted(unique or links)[0] if links else ""

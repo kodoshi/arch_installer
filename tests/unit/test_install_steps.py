@@ -43,6 +43,7 @@ class TestRegistryCompleteness:
             EnvVariable.VERBOSE,
             EnvVariable.NO_WRITE,
             EnvVariable.SECRETS_KEY,
+            EnvVariable.SPARE_USB_DEVICE,
         }
         registered = {setting.environment_variable for setting in all_settings()}
 
@@ -57,13 +58,19 @@ class TestRegistryCompleteness:
 
 class TestRegistryContents:
     def test_steps_run_in_installation_order(self):
-        assert list(INSTALL_STEPS)[:4] == [
+        assert list(INSTALL_STEPS)[:5] == [
             InstallStep.MIGRATION_STAGING,
+            InstallStep.USB_BOOT_DRIVE,
             InstallStep.STORAGE,
             InstallStep.PACMAN_MIRRORS,
             InstallStep.PACKAGES,
         ]
-        assert list(INSTALL_STEPS)[-1] == InstallStep.FIREWALL
+        assert list(INSTALL_STEPS)[-1] == InstallStep.USB_BOOT_SAFEGUARDS
+
+    def test_recovery_system_is_built_once_the_boot_loader_and_its_keys_exist(self):
+        steps = list(INSTALL_STEPS)
+        assert steps.index(InstallStep.RECOVERY_SYSTEM) > steps.index(InstallStep.BOOTLOADER)
+        assert steps.index(InstallStep.BOOTLOADER) > steps.index(InstallStep.KERNEL_IMAGES)
 
     def test_a_setting_path_leads_back_to_its_variable(self):
         assert variable_for_setting("storage.target_disk") == EnvVariable.TARGET_DISK

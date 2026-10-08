@@ -12,7 +12,7 @@ cryptography = "^46.0.3"
 
 [tool.poetry.scripts]
 arch-installer = "arch_installer.cli:main"
-usb-init = "arch_installer.cli:usb_init"
+clone-usb-boot = "arch_installer.cli:clone_usb_boot"
 usb-backup = "arch_installer.cli:usb_backup"
 
 [build-system]

@@ -9,7 +9,7 @@ title "DALI - Declarative ArchLinux Installer - Architecture Diagram"
 
 package "Entry Points (cli.py)" {
     class "cli" as cli <<module>> {
-        + main() / usb_init() / usb_backup(): int
+        + main() / clone_usb_boot() / usb_backup(): int
         + encrypt_secrets() / decrypt_secrets(): int
         + assemble_installer_config(environment, tui): InstallerConfig
         + validate_for_install(config)
@@ -19,10 +19,13 @@ package "Entry Points (cli.py)" {
 package "Install steps (install_steps/)" {
     enum InstallStep {
         MIGRATION_STAGING
+        USB_BOOT_DRIVE
         STORAGE
         PACKAGES
-        SYSTEM
         ...
+        RECOVERY_SYSTEM
+        ...
+        USB_BOOT_SAFEGUARDS
     }
     class "registry" as registry <<module>> {
         INSTALL_STEPS: dict[InstallStep, StepWiring]
@@ -37,7 +40,7 @@ package "Install steps (install_steps/)" {
         config_sections: tuple[str, ...]
         settings: tuple[StepSetting, ...]
         enabled: StepCondition
-        executor: type[Executor]
+        executor: type[StepExecutor]
     }
     class StepSetting <<frozen>> {
         path: str
@@ -59,7 +62,9 @@ package "Configuration (config/)" {
         snapper, firewall, docker, notifications,
         sync, migration, usb_boot, secrets, credentials
         --
-        no field defaults (UsbBootConfig waits)
+        no field defaults
+        root_partition / efi_partition /
+        luks_header_device follow usb_boot
     }
     class "value_precedence" as value_precedence <<module>> {
         INHERITANCE_ORDER = (ENVIRONMENT, CONFIG_FILE)
@@ -118,19 +123,20 @@ package "Orchestration (installer.py)" {
 }
 
 package "Executors (executors/)" {
-    abstract class Executor {
+    abstract class StepExecutor {
         # _config: InstallerConfig
         # _runner: CommandRunner
         + {abstract} execute()
-        --
-        becomes StepExecutor with USB boot
     }
     class StorageStepExecutor
     class PackagesStepExecutor
     class SystemStepExecutor
     class KernelImagesStepExecutor
     class "... 10 more step executors" as more_steps
-    class UsbBootExecutor
+    class UsbBootDriveStepExecutor
+    class RecoverySystemStepExecutor
+    class UsbBootSafeguardsStepExecutor
+    class UsbBootDriveCloner
     class UsbBackupStepExecutor
 }
 
@@ -155,7 +161,7 @@ builder --> InstallerConfig : builds
 registry o-- StepWiring
 StepWiring o-- StepSetting
 StepSetting --> questions
-StepWiring --> Executor : executor
+StepWiring --> StepExecutor : executor
 
 session --> registry : walks INSTALL_STEPS
 session --> SetupFrontend : asks
@@ -165,14 +171,17 @@ CursesFrontend --> session : run_setup
 CursesFrontend --> widgets
 
 Installer --> registry : runs enabled steps
-Executor <|-- StorageStepExecutor
-Executor <|-- PackagesStepExecutor
-Executor <|-- SystemStepExecutor
-Executor <|-- KernelImagesStepExecutor
-Executor <|-- more_steps
-Executor <|--- UsbBootExecutor
-Executor <|--- UsbBackupStepExecutor
-Executor --> InstallerConfig : reads
-Executor --> CommandRunner : runs commands
+StepExecutor <|-- StorageStepExecutor
+StepExecutor <|-- PackagesStepExecutor
+StepExecutor <|-- SystemStepExecutor
+StepExecutor <|-- KernelImagesStepExecutor
+StepExecutor <|-- more_steps
+StepExecutor <|--- UsbBootDriveStepExecutor
+StepExecutor <|--- RecoverySystemStepExecutor
+StepExecutor <|--- UsbBootSafeguardsStepExecutor
+StepExecutor <|--- UsbBackupStepExecutor
+StepExecutor --> InstallerConfig : reads
+StepExecutor --> CommandRunner : runs commands
+cli --> UsbBootDriveCloner : make clone_usb_boot
 
 @enduml

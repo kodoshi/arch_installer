@@ -61,10 +61,11 @@ Unless `NON_INTERACTIVE=true` is set, the installer opens a curses TUI after rea
 | Step | Screens |
 |---|---|
 | Migration staging | Installation type (fresh or migration); old disk password, only when migrating |
+| USB boot drive | On or off; then, only when on: the drive (the detected disks, or typed), the recovery system on or off, and its Arch ISO when on |
 | Storage | Disk (the detected disks, or typed when none is found); wipe method; swap file on or off; swap size and hibernation, only with a swap file; LUKS password |
 | Packages | CPU vendor; GPU vendor; NVIDIA driver, only for an NVIDIA card; desktops |
 | System | Hostname; username; timezone; keymap; user password |
-| Docker, USB boot drive, Bootable snapshots, Snapshot notifications, Firewall | On or off, one screen each; the USB device, only when the USB boot drive is on |
+| Docker, Bootable snapshots, Snapshot notifications, Firewall | On or off, one screen each |
 | | Configuration summary: `y` installs, `n` cancels |
 
 - **Passwords:** an inherited password (encrypted secrets or environment) is never shown. Its screen offers to keep it or enter a new one, and a new one is typed twice.
@@ -422,13 +423,26 @@ The settings below can also come from environment variables. A variable that is 
 | ------------------- | ---------------------------------------------------- | ---------------------------- |
 | `SELECTED_DESKTOPS` | Comma-separated desktops: `kde`, `gnome`, `hyprland` | `packages.selected_desktops` |
 
-### USB Settings
+### USB Boot Drive
+
+See [USB Boot Drive](usb-boot.md).
+
+| Variable                 | Description                                                    | When not set               |
+| ------------------------ | -------------------------------------------------------------- | -------------------------- |
+| `ENABLE_USB_BOOT`        | EFI partition and LUKS header on a USB drive                   | `usb_boot.enabled`         |
+| `USB_BOOT_DEVICE`        | The drive, erased entirely (e.g., `/dev/sdb`)                  | `usb_boot.device`          |
+| `ENABLE_RECOVERY_SYSTEM` | Signed Arch live system on the drive                           | `usb_boot.recovery_system` |
+| `ISO_PATH`               | Arch ISO file, or the live medium (`/dev/sr0`)                 | `usb_boot.iso_path`        |
+
+`make clone_usb_boot` reads `USB_BOOT_DEVICE` and `SPARE_USB_DEVICE` (the Makefile passes them as `USB_DEVICE` and `SPARE_DEVICE`).
+
+### Backup
+
+See [USB Backup](usb-backup.md).
 
 | Variable            | Description                                                  | When not set              |
 | ------------------- | ------------------------------------------------------------ | ------------------------- |
-| `ENABLE_USB_BOOT`   | EFI partition and LUKS header on a USB drive                 | `usb_boot.enabled`        |
-| `USB_BOOT_DEVICE`   | USB device (e.g., `/dev/sdb`)                                | `usb_boot.device`         |
-| `ISO_PATH`          | Arch ISO copied to the USB drive                             | `usb_boot.iso_path`       |
+| `BACKUP_PARTITION`  | Partition to back up to (e.g., `/dev/sdc1`)                  | `sync.backup_partition`   |
 | `BACKUP_CATEGORIES` | Comma-separated: `dotfiles`, `keepass`, `browser`, `system`  | `sync.backup_categories`  |
 
 ## Dual Boot with Windows

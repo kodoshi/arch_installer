@@ -3,7 +3,7 @@
 import json
 import logging
 
-from arch_installer.executors.base import TARGET_ROOT, Executor, write_file
+from arch_installer.executors.base import TARGET_ROOT, StepExecutor, write_file
 from arch_installer.executors.system import user_groups
 
 logger = logging.getLogger(__name__)
@@ -22,7 +22,7 @@ def access_group_sudoers(access_group: str) -> str:
     )
 
 
-class DockerStepExecutor(Executor):
+class DockerStepExecutor(StepExecutor):
     def execute(self) -> None:
         docker = self._config.docker
         if not self._runner.run_as_chroot("pacman -Q docker", raise_on_nonzero_exit=False).success:

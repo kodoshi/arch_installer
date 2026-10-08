@@ -28,3 +28,7 @@ class ConfigurationError(ArchInstallerError):
 
 class MigrationError(ArchInstallerError):
     pass
+
+
+class UsbBootDriveError(ArchInstallerError):
+    pass

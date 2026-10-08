@@ -33,6 +33,8 @@ def expected_state_values(config: InstallerConfig) -> dict[str, str | bool]:
         "EXPECTED_FIREWALL_ENABLED": config.firewall.enabled,
         "EXPECTED_GPU_VENDOR": str(gpu.vendor),
         "EXPECTED_GPU_DRIVER": str(gpu.driver),
+        "EXPECTED_USB_BOOT": config.usb_boot.enabled,
+        "EXPECTED_RECOVERY_SYSTEM": config.usb_boot.enabled and config.usb_boot.recovery_system,
     }
 
 

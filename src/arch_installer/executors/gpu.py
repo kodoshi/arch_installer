@@ -6,7 +6,7 @@ which owns mkinitcpio.conf.
 
 import logging
 
-from arch_installer.executors.base import TARGET_ROOT, Executor, write_file
+from arch_installer.executors.base import TARGET_ROOT, StepExecutor, write_file
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +35,7 @@ Exec=/bin/sh -c 'while read -r trg; do case $trg in linux*) exit 0; esac; done; 
 """
 
 
-class GpuDriverStepExecutor(Executor):
+class GpuDriverStepExecutor(StepExecutor):
     def execute(self) -> None:
         logger.info("Configuring the NVIDIA %s driver...", self._config.gpu.driver or "dkms")
 

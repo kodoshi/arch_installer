@@ -1,6 +1,6 @@
-# DALI (Declarative ArchLinux Installer) — Comprehensive Functional Map
+# DALI (Declarative ArchLinux Installer): Comprehensive Functional Map
 
-> Module inventory, test tables and import graphs are generated from the code (Python AST); the overview and data flow are written by hand. Total: ~14,350 lines (5,158 source, 6,636 tests, 2,556 shell scripts).
+> Module inventory, test tables and import graphs are generated from the code (Python AST); the overview and data flow are written by hand. Total: ~15,412 lines (5,691 source, 7,099 tests, 2,622 shell scripts).
 
 ---
 
@@ -54,7 +54,7 @@ DALI is a **declarative, deterministic, idempotent** Arch Linux installer that:
 
 - Python 3.13+, Poetry, PyYAML, cryptography (AES-256-GCM for secrets)
 - Dev: pytest, pytest-cov, pytest-xdist, pytest-timeout, ruff, docker (unused)
-- 5,158 lines of source code, 6,636 lines of tests, 2,556 lines of shell scripts
+- 5,691 lines of source code, 7,099 lines of tests, 2,622 lines of shell scripts
 
 ---
 
@@ -63,10 +63,10 @@ DALI is a **declarative, deterministic, idempotent** Arch Linux installer that:
 | Entry Point                 | Target                                     | How Invoked                        |
 | --------------------------- | ------------------------------------------ | ---------------------------------- |
 | `arch-installer` CLI        | `arch_installer.cli:main`                  | `pyproject.toml [project.scripts]` |
-| `usb-init` CLI              | `arch_installer.cli:usb_init`              | `pyproject.toml [project.scripts]` |
+| `clone-usb-boot` CLI        | `arch_installer.cli:clone_usb_boot`        | `pyproject.toml [project.scripts]` |
 | `usb-backup` CLI            | `arch_installer.cli:usb_backup`            | `pyproject.toml [project.scripts]` |
 | `make install` / `make run` | `python -m arch_installer.cli`             | Makefile                           |
-| `make init_to_usb`          | `arch_installer.cli.usb_init()`            | Makefile                           |
+| `make clone_usb_boot`       | `arch_installer.cli.clone_usb_boot()`      | Makefile                           |
 | `make backup_to_usb`        | `arch_installer.cli.usb_backup()`          | Makefile                           |
 | `make encrypt-secrets`      | `arch_installer.cli.encrypt_secrets()`     | Makefile                           |
 | `make decrypt-secrets`      | `arch_installer.cli.decrypt_secrets()`     | Makefile                           |
@@ -92,9 +92,9 @@ Empty.
 
 ---
 
-#### `cli.py` (306 lines)
+#### `cli.py` (330 lines)
 
-Command-line entry points: `arch-installer`, `usb-init`, `usb-backup`, and the secrets helpers behind `make encrypt-secrets` / `make decrypt-secrets`.
+Command-line entry points: `arch-installer`, `clone-usb-boot`, `usb-backup`, and the secrets helpers behind `make encrypt-secrets` / `make decrypt-secrets`.
 
 | Name | Kind | Details |
 | ---- | ---- | ------- |
@@ -106,9 +106,10 @@ Command-line entry points: `arch-installer`, `usb-init`, `usb-backup`, and the s
 | `_log_value_sources()` | function | `_log_value_sources(final_values) -> None` |
 | `_explain_missing()` | function | `_explain_missing(setting_paths) -> str` |
 | `validate_for_install()` | function | `validate_for_install(config) -> None` |
+| `_usb_boot_problems()` | function | `_usb_boot_problems(config) -> list[str]` |
 | `_run()` | function | `_run(entry, variables) -> int` |
 | `_install()` | function | `_install(environment) -> None` |
-| `_usb_init()` | function | `_usb_init(environment) -> None` |
+| `_clone_usb_boot()` | function | `_clone_usb_boot(environment) -> None` |
 | `_usb_backup()` | function | `_usb_backup(environment) -> None` |
 | `_ask_secret()` | function | `_ask_secret(label, confirm) -> str` |
 | `_secret_from_environment_or_prompt()` | function | `_secret_from_environment_or_prompt(environment, variable, label, confirm) -> str` |
@@ -118,7 +119,7 @@ Command-line entry points: `arch-installer`, `usb-init`, `usb-backup`, and the s
 | `_encrypt_secrets()` | function | `_encrypt_secrets(environment) -> None` |
 | `_decrypt_secrets()` | function | `_decrypt_secrets(environment) -> None` |
 | `main()` | function | `main() -> int` |
-| `usb_init()` | function | `usb_init() -> int` |
+| `clone_usb_boot()` | function | `clone_usb_boot() -> int` |
 | `usb_backup()` | function | `usb_backup() -> int` |
 | `encrypt_secrets()` | function | `encrypt_secrets() -> int` |
 | `decrypt_secrets()` | function | `decrypt_secrets() -> int` |
@@ -128,7 +129,7 @@ Command-line entry points: `arch-installer`, `usb-init`, `usb-backup`, and the s
 
 ---
 
-#### `errors.py` (30 lines)
+#### `errors.py` (34 lines)
 
 Custom exceptions for the arch installer.
 
@@ -138,13 +139,14 @@ Custom exceptions for the arch installer.
 | `CommandError` | dataclass | fields: `command`, `exit_code`, `stdout`, `stderr`; methods: `__str__()` |
 | `ConfigurationError` | class (ArchInstallerError) | - |
 | `MigrationError` | class (ArchInstallerError) | - |
+| `UsbBootDriveError` | class (ArchInstallerError) | - |
 
 **Imports from project:** -  
-**Imported by:** `cli`, `config.config_file`, `config.environment`, `config.installer_config_builder`, `config.secrets_file`, `core.command`, `core.secrets`, `executors.migration`, `executors.usb_backup`, `tests/unit/__init__`, `tests/unit/test_config`, `tests/unit/test_core`, `tests/unit/test_environment`, `tests/unit/test_installer_config_assembly`, `tests/unit/test_migration`, `tests/unit/test_secrets`, `tests/unit/test_secrets_file`, `tests/unit/test_usb_backup`
+**Imported by:** `cli`, `config.config_file`, `config.environment`, `config.installer_config_builder`, `config.secrets_file`, `core.command`, `core.secrets`, `executors.migration`, `executors.usb_backup`, `executors.usb_boot`, `tests/unit/__init__`, `tests/unit/test_config`, `tests/unit/test_core`, `tests/unit/test_environment`, `tests/unit/test_installer_config_assembly`, `tests/unit/test_migration`, `tests/unit/test_secrets`, `tests/unit/test_secrets_file`, `tests/unit/test_usb_backup`, `tests/unit/test_usb_boot`
 
 ---
 
-#### `expected_state.py` (44 lines)
+#### `expected_state.py` (46 lines)
 
 The expectations `verify-install` checks the installed system against.
 
@@ -204,13 +206,13 @@ Config.yaml as a source of setting values.
 
 ---
 
-#### `config/environment.py` (79 lines)
+#### `config/environment.py` (82 lines)
 
 Environment variables: their names, and reading the ones that are set.
 
 | Name | Kind | Details |
 | ---- | ---- | ------- |
-| `EnvVariable` | enum | `CONFIG_PATH`, `NON_INTERACTIVE`, `VERBOSE`, `NO_WRITE`, `SECRETS_KEY`, `LUKS_PASSWORD`, `USER_PASSWORD`, `SOURCE_LUKS_PASSWORD`, `TARGET_DISK`, `WIPE_METHOD`, `SWAP_SIZE_MB`, `ENABLE_SWAP`, `ENABLE_HIBERNATION`, `ENABLE_SNAPSHOT_BOOT`, `ENABLE_FIREWALL`, `ENABLE_DOCKER`, `ENABLE_NOTIFICATIONS`, `ENABLE_MIGRATION`, `ENABLE_USB_BOOT`, `USB_BOOT_DEVICE`, `ISO_PATH`, `BACKUP_CATEGORIES`, `CPU_VENDOR`, `GPU_VENDOR`, `GPU_DRIVER`, `SELECTED_KERNELS`, `SELECTED_DESKTOPS` |
+| `EnvVariable` | enum | `CONFIG_PATH`, `NON_INTERACTIVE`, `VERBOSE`, `NO_WRITE`, `SECRETS_KEY`, `LUKS_PASSWORD`, `USER_PASSWORD`, `SOURCE_LUKS_PASSWORD`, `TARGET_DISK`, `WIPE_METHOD`, `SWAP_SIZE_MB`, `ENABLE_SWAP`, `ENABLE_HIBERNATION`, `ENABLE_SNAPSHOT_BOOT`, `ENABLE_FIREWALL`, `ENABLE_DOCKER`, `ENABLE_NOTIFICATIONS`, `ENABLE_MIGRATION`, `ENABLE_USB_BOOT`, `USB_BOOT_DEVICE`, `ENABLE_RECOVERY_SYSTEM`, `ISO_PATH`, `SPARE_USB_DEVICE`, `BACKUP_PARTITION`, `BACKUP_CATEGORIES`, `CPU_VENDOR`, `GPU_VENDOR`, `GPU_DRIVER`, `SELECTED_KERNELS`, `SELECTED_DESKTOPS` |
 | `Environment` | class | `is_set()`, `text()`, `switch_is_on()`, `setting_values()`, `_raw()` |
 
 **Imports from project:** `config.installer_config_builder`, `errors`  
@@ -239,7 +241,7 @@ Setting values -> InstallerConfig.
 
 ---
 
-#### `config/models.py` (465 lines)
+#### `config/models.py` (492 lines)
 
 The installer's single configuration model.
 
@@ -262,7 +264,7 @@ The installer's single configuration model.
 | `SubvolumeConfig` | dataclass | fields: `name`, `mountpoint`, `nocow` |
 | `BtrfsConfig` | dataclass | fields: `label`, `mount_options`, `subvolumes` |
 | `SwapConfig` | dataclass | fields: `enabled`, `size_mb`, `path`, `hibernation` |
-| `StorageConfig` | dataclass | fields: `target_disk`, `efi_size_mb`, `wipe_method`, `luks`, `btrfs`, `swap`; properties: `efi_partition`, `root_partition`, `cryptroot_device` |
+| `StorageConfig` | dataclass | fields: `target_disk`, `efi_size_mb`, `wipe_method`, `luks`, `btrfs`, `swap`; properties: `cryptroot_device` |
 | `KernelConfig` | dataclass | fields: `name`, `package` |
 | `UkiVariantConfig` | dataclass | fields: `suffix`, `params` |
 | `CmdlineHardeningConfig` | dataclass | fields: `lockdown`, `iommu`, `intel_iommu`, `amd_iommu`, `pti`, `spectre_v2`, `spec_store_bypass_disable`, `l1tf`, `mds`, `srbds`, `tsx_async_abort`, `init_on_alloc`, `init_on_free` |
@@ -283,15 +285,15 @@ The installer's single configuration model.
 | `FirewallConfig` | dataclass | fields: `enabled`, `default_incoming`, `default_outgoing`, `logging`, `block_icmp`, `ssh`, `allow_rules` |
 | `DockerConfig` | dataclass | fields: `enabled`, `storage_driver`, `data_root`, `access_group` |
 | `BackupItemConfig` | dataclass | fields: `name`, `source_path`, `description` |
-| `SyncConfig` | dataclass | fields: `backup_items`, `backup_categories` |
+| `SyncConfig` | dataclass | fields: `backup_partition`, `backup_items`, `backup_categories` |
 | `MigrationConfig` | dataclass | fields: `enabled`, `preserve_home`, `preserve_secure_boot_keys`, `additional_paths` |
-| `UsbBootConfig` | dataclass | fields: `enabled`, `device`, `efi_size_mb`, `iso_partition_size_mb`, `iso_path`, `detached_luks_header`, `backup_partition_size_mb` |
+| `UsbBootConfig` | dataclass | fields: `enabled`, `device`, `recovery_system`, `iso_path`; properties: `efi_partition`, `luks_header_partition`, `recovery_partition` |
 | `EncryptedSecretsConfig` | dataclass | fields: `luks_password_encrypted`, `user_password_encrypted`; properties: `configured` |
 | `Credentials` | dataclass | fields: `luks_password`, `user_password`, `source_luks_password`; methods: `__repr__()` |
-| `InstallerConfig` | dataclass | fields: `system`, `packages`, `storage`, `boot`, `gpu`, `snapper`, `firewall`, `docker`, `notifications`, `sync`, `migration`, `usb_boot`, `secrets`, `credentials` |
+| `InstallerConfig` | dataclass | fields: `system`, `packages`, `storage`, `boot`, `gpu`, `snapper`, `firewall`, `docker`, `notifications`, `sync`, `migration`, `usb_boot`, `secrets`, `credentials`; properties: `encrypted_device`, `efi_partition`, `luks_header_device` |
 | `_plain_yaml_value()` | function | `_plain_yaml_value(value) -> Any` |
 | `exportable_config()` | function | `exportable_config(config) -> dict[str, Any]` |
-| constants | - | `CRYPTROOT_MAPPER_NAME`, `LUKS_PASSWORD_SECRET`, `USER_PASSWORD_SECRET` |
+| constants | - | `CRYPTROOT_MAPPER_NAME`, `USB_EFI_PARTITION_NUMBER`, `USB_LUKS_HEADER_PARTITION_NUMBER`, `USB_RECOVERY_PARTITION_NUMBER`, `LUKS_PASSWORD_SECRET`, `USER_PASSWORD_SECRET` |
 
 **Imports from project:** -  
 **Imported by:** `cli`, `config.config_file`, `config.installer_config_builder`, `config.secrets_file`, `executors.base`, `executors.boot`, `executors.packages`, `executors.snapper`, `executors.storage`, `executors.system`, `executors.usb_backup`, `executors.usb_boot`, `expected_state`, `install_steps.registry`, `install_steps.wiring`, `installer`, `tests/qemu/test_installation`, `tests/unit/conftest`, `tests/unit/test_boot`, `tests/unit/test_config`, `tests/unit/test_docker`, `tests/unit/test_environment`, `tests/unit/test_firewall`, `tests/unit/test_gpu`, `tests/unit/test_install_steps`, `tests/unit/test_installer`, `tests/unit/test_installer_config_assembly`, `tests/unit/test_migration`, `tests/unit/test_packages`, `tests/unit/test_secrets_file`, `tests/unit/test_setup_session`, `tests/unit/test_snapper`, `tests/unit/test_storage`, `tests/unit/test_system`, `tests/unit/test_usb_backup`, `tests/unit/test_usb_boot`
@@ -424,25 +426,26 @@ What the interactive setup can ask, independent of how a front-end shows it.
 
 ---
 
-#### `install_steps/registry.py` (376 lines)
+#### `install_steps/registry.py` (427 lines)
 
 Everything the installer can do, in the order it does it.
 
 | Name | Kind | Details |
 | ---- | ---- | ------- |
-| `InstallStep` | enum | `MIGRATION_STAGING`, `STORAGE`, `PACMAN_MIRRORS`, `PACKAGES`, `MIGRATION_RESTORE`, `SYSTEM`, `DOCKER`, `GPU_DRIVER`, `KERNEL_IMAGES`, `BOOTLOADER`, `USB_BOOT_DRIVE`, `SNAPPER`, `BOOTABLE_SNAPSHOTS`, `SNAPSHOT_NOTIFICATIONS`, `FIREWALL` |
+| `InstallStep` | enum | `MIGRATION_STAGING`, `USB_BOOT_DRIVE`, `STORAGE`, `PACMAN_MIRRORS`, `PACKAGES`, `MIGRATION_RESTORE`, `SYSTEM`, `DOCKER`, `GPU_DRIVER`, `KERNEL_IMAGES`, `BOOTLOADER`, `RECOVERY_SYSTEM`, `SNAPPER`, `BOOTABLE_SNAPSHOTS`, `SNAPSHOT_NOTIFICATIONS`, `FIREWALL`, `USB_BOOT_SAFEGUARDS` |
 | `detected_disk_choices()` | function | `detected_disk_choices(inherited_value, machine) -> tuple[Choice, ...]` |
 | `_swap_label()` | function | `_swap_label(size_mb) -> str` |
 | `swap_size_choices()` | function | `swap_size_choices(inherited_value, machine) -> tuple[Choice, ...]` |
 | `_mirrors_declared()` | function | `_mirrors_declared(value) -> bool` |
 | `_uses_proprietary_nvidia_driver()` | function | `_uses_proprietary_nvidia_driver(value) -> bool` |
+| `_recovery_system_wanted()` | function | `_recovery_system_wanted(value) -> bool` |
 | `_snapshot_notifications_wanted()` | function | `_snapshot_notifications_wanted(value) -> bool` |
 | `all_settings()` | function | `all_settings() -> tuple[StepSetting, ...]` |
 | `environment_variable_paths()` | function | `environment_variable_paths() -> dict[EnvVariable, str]` |
 | `variable_for_setting()` | function | `variable_for_setting(setting_path) -> EnvVariable | None` |
 | constants | - | `WIPE_CHOICES`, `CPU_CHOICES`, `GPU_CHOICES`, `NVIDIA_DRIVER_CHOICES`, `DESKTOP_CHOICES`, `SWAP_PRESETS_MB`, `INSTALL_STEPS`, `USB_BACKUP_SETTINGS` |
 
-**Imports from project:** `config.environment`, `config.models`, `executors.boot`, `executors.docker`, `executors.firewall`, `executors.gpu`, `executors.migration`, `executors.mirrors`, `executors.packages`, `executors.snapper`, `executors.storage`, `executors.system`, `executors.usb_boot`, `install_steps.questions`, `install_steps.wiring`  
+**Imports from project:** `config.environment`, `config.models`, `executors.boot`, `executors.docker`, `executors.firewall`, `executors.gpu`, `executors.migration`, `executors.mirrors`, `executors.packages`, `executors.recovery`, `executors.snapper`, `executors.storage`, `executors.system`, `executors.usb_boot`, `install_steps.questions`, `install_steps.wiring`  
 **Imported by:** `cli`, `installer`, `setup.session`, `tests/unit/test_environment`, `tests/unit/test_install_steps`, `tests/unit/test_installer`
 
 ---
@@ -523,42 +526,45 @@ The interactive setup, the same for every front-end.
 
 ### 3.6 executors/ Package
 
-#### `executors/base.py` (75 lines)
+#### `executors/base.py` (85 lines)
 
 The executor contract and the shell helpers executors share.
 
 | Name | Kind | Details |
 | ---- | ---- | ------- |
-| `Executor` | class (ABC) | `execute()` |
+| `StepExecutor` | class (ABC) | `execute()` |
 | `is_mountpoint()` | function | `is_mountpoint(runner, path) -> bool` |
 | `path_exists()` | function | `path_exists(runner, path) -> bool` |
 | `file_exists()` | function | `file_exists(runner, path) -> bool` |
 | `directory_exists()` | function | `directory_exists(runner, path) -> bool` |
 | `write_file()` | function | `write_file(runner, path, content) -> None` |
-| `detect_luks_uuid()` | function | `detect_luks_uuid(runner, root_partition) -> str | None` |
-| constants | - | `TARGET_ROOT`, `TARGET_EFI`, `SBCTL_DIRECTORY`, `SBCTL_LEGACY_DIRECTORY`, `SBCTL_PK_KEY`, `SBCTL_DB_KEY` |
+| `detect_luks_uuid()` | function | `detect_luks_uuid(runner, luks_header_device) -> str` |
+| `partition_uuid()` | function | `partition_uuid(runner, partition) -> str` |
+| `stable_disk_path()` | function | `stable_disk_path(runner, disk) -> str` |
+| constants | - | `TARGET_ROOT`, `TARGET_EFI`, `SBCTL_DIRECTORY`, `SBCTL_LEGACY_DIRECTORY`, `SBCTL_PK_KEY`, `SBCTL_DB_KEY`, `UNIQUE_DISK_IDENTIFIER_PREFIXES` |
 
 **Imports from project:** `config.models`, `core.command`  
-**Imported by:** `executors.boot`, `executors.docker`, `executors.firewall`, `executors.gpu`, `executors.migration`, `executors.mirrors`, `executors.packages`, `executors.snapper`, `executors.storage`, `executors.system`, `executors.usb_backup`, `executors.usb_boot`, `install_steps.wiring`, `installer`, `tests/unit/test_installer`
+**Imported by:** `executors.boot`, `executors.docker`, `executors.firewall`, `executors.gpu`, `executors.migration`, `executors.mirrors`, `executors.packages`, `executors.recovery`, `executors.snapper`, `executors.storage`, `executors.system`, `executors.usb_backup`, `executors.usb_boot`, `install_steps.wiring`, `installer`, `tests/unit/test_installer`, `tests/unit/test_usb_boot`
 
 ---
 
-#### `executors/boot.py` (266 lines)
+#### `executors/boot.py` (322 lines)
 
 Initramfs and unified kernel images (mkinitcpio), Secure Boot keys and systemd-boot.
 
 | Name | Kind | Details |
 | ---- | ---- | ------- |
+| `DetachedLuksHeader` | dataclass | fields: `encrypted_device_path`, `header_partition_uuid` |
 | `mkinitcpio_conf()` | function | `mkinitcpio_conf(hooks, modules) -> str` |
 | `uki_path()` | function | `uki_path(kernel, variant) -> str` |
 | `cmdline_file()` | function | `cmdline_file(kernel, variant) -> str` |
 | `kernel_preset()` | function | `kernel_preset(kernel, variants) -> str` |
 | `loader_conf()` | function | `loader_conf(loader) -> str` |
-| `kernel_cmdline()` | function | `kernel_cmdline(config, luks_uuid, resume_offset) -> str` |
+| `kernel_cmdline()` | function | `kernel_cmdline(config, luks_uuid, detached_header, resume_offset) -> str` |
 | `uki_variants()` | function | `uki_variants(config) -> tuple[UkiVariantConfig, ...]` |
-| `KernelImagesStepExecutor` | class (Executor) | `execute()`, `_swapfile_resume_offset()`, `_prepare_secure_boot()`, `_is_in_setup_mode()`, `_enroll_keys()`, `_sign_ukis()` |
-| `BootloaderStepExecutor` | class (Executor) | `execute()` |
-| constants | - | `UKI_DIRECTORY`, `PLAIN_VARIANT`, `BOOTLOADER_BINARIES` |
+| `KernelImagesStepExecutor` | class (StepExecutor) | `execute()`, `_detached_header()`, `_swapfile_resume_offset()`, `_prepare_secure_boot()`, `_is_in_setup_mode()`, `_enroll_keys()`, `_sign_ukis()` |
+| `BootloaderStepExecutor` | class (StepExecutor) | `execute()`, `_install_on_usb_boot_drive()` |
+| constants | - | `UKI_DIRECTORY`, `PLAIN_VARIANT`, `BOOTLOADER_BINARIES`, `USB_STORAGE_INITRAMFS_MODULES` |
 
 **Imports from project:** `config.models`, `executors.base`, `executors.gpu`  
 **Imported by:** `install_steps.registry`, `tests/unit/test_boot`
@@ -573,7 +579,7 @@ Docker daemon configuration and the group allowed to run docker through sudo.
 | ---- | ---- | ------- |
 | `daemon_json()` | function | `daemon_json(storage_driver, data_root) -> str` |
 | `access_group_sudoers()` | function | `access_group_sudoers(access_group) -> str` |
-| `DockerStepExecutor` | class (Executor) | `execute()` |
+| `DockerStepExecutor` | class (StepExecutor) | `execute()` |
 | constants | - | `DOCKER_GROUP` |
 
 **Imports from project:** `executors.base`, `executors.system`  
@@ -587,7 +593,7 @@ UFW firewall, configured offline and enabled on the first boot of the installed 
 
 | Name | Kind | Details |
 | ---- | ---- | ------- |
-| `FirewallStepExecutor` | class (Executor) | `execute()`, `_allow_ssh()`, `_set_enabled_on_boot()` |
+| `FirewallStepExecutor` | class (StepExecutor) | `execute()`, `_allow_ssh()`, `_set_enabled_on_boot()` |
 | constants | - | `UFW_CONF`, `UFW_BEFORE_RULES`, `INBOUND_ICMP_ACCEPT_RULES` |
 
 **Imports from project:** `executors.base`  
@@ -602,7 +608,7 @@ Proprietary NVIDIA driver setup. AMD, Intel and nouveau need nothing beyond thei
 | Name | Kind | Details |
 | ---- | ---- | ------- |
 | `initramfs_rebuild_hook()` | function | `initramfs_rebuild_hook(kernel_packages) -> str` |
-| `GpuDriverStepExecutor` | class (Executor) | `execute()` |
+| `GpuDriverStepExecutor` | class (StepExecutor) | `execute()` |
 | constants | - | `NVIDIA_MODPROBE_DRM_OPTIONS`, `NVIDIA_INITRAMFS_MODULES`, `NVIDIA_DRIVER_PACKAGES` |
 
 **Imports from project:** `executors.base`  
@@ -618,8 +624,8 @@ Migration from an existing encrypted btrfs Arch install, around the disk wipe.
 | ---- | ---- | ------- |
 | `path_in_old_root()` | function | `path_in_old_root(path) -> str` |
 | `ExistingInstallInfo` | dataclass | fields: `disk`, `root_partition`, `home_subvolume`, `home_size_mb`, `secure_boot_directory` |
-| `MigrationStagingStepExecutor` | class (Executor) | `execute()`, `_find_luks_partition()`, `_open_and_mount()`, `_unmount_and_close()`, `_inspect_mounted_system()`, `_find_secure_boot_directory()`, `_ensure_staging_space()`, `_copy_to_staging()`, `_copy_into_staging()`, `_size_mb()` |
-| `MigrationRestoreStepExecutor` | class (Executor) | `execute()`, `_report_restored_data()` |
+| `MigrationStagingStepExecutor` | class (StepExecutor) | `execute()`, `_find_luks_partition()`, `_open_and_mount()`, `_unmount_and_close()`, `_inspect_mounted_system()`, `_find_secure_boot_directory()`, `_ensure_staging_space()`, `_copy_to_staging()`, `_copy_into_staging()`, `_size_mb()` |
+| `MigrationRestoreStepExecutor` | class (StepExecutor) | `execute()`, `_report_restored_data()` |
 | constants | - | `STAGING_DIRECTORY`, `OLD_MOUNT_DIRECTORY`, `OLD_MAPPER_NAME`, `STAGING_HEADROOM_MB` |
 
 **Imports from project:** `errors`, `executors.base`  
@@ -634,7 +640,7 @@ Pacman mirrors declared in system.mirrors.
 | Name | Kind | Details |
 | ---- | ---- | ------- |
 | `mirrorlist()` | function | `mirrorlist(mirrors) -> str` |
-| `PacmanMirrorsStepExecutor` | class (Executor) | `execute()` |
+| `PacmanMirrorsStepExecutor` | class (StepExecutor) | `execute()` |
 | constants | - | `LIVE_MIRRORLIST` |
 
 **Imports from project:** `executors.base`  
@@ -648,11 +654,27 @@ Base system, kernels, microcode, desktops and GPU packages via pacstrap, plus fs
 
 | Name | Kind | Details |
 | ---- | ---- | ------- |
-| `PackagesStepExecutor` | class (Executor) | `execute()`, `_collect_packages()`, `_without_other_microcode()`, `_without_unselected_kernels()`, `_desktop_packages()`, `_gpu_packages()`, `_create_vconsole_config()`, `_clear_pacman_locks()`, `_install()`, `_copy_pacman_config()`, `_generate_fstab()`, `_enable_services()` |
+| `PackagesStepExecutor` | class (StepExecutor) | `execute()`, `_collect_packages()`, `_without_other_microcode()`, `_without_unselected_kernels()`, `_desktop_packages()`, `_gpu_packages()`, `_create_vconsole_config()`, `_clear_pacman_locks()`, `_install()`, `_copy_pacman_config()`, `_generate_fstab()`, `_enable_services()` |
 | constants | - | `MICROCODE_PACKAGES` |
 
 **Imports from project:** `config.models`, `executors.base`  
 **Imported by:** `install_steps.registry`, `tests/unit/test_packages`
+
+---
+
+#### `executors/recovery.py` (138 lines)
+
+The recovery system on the USB boot drive: the Arch live system, started by a signed UKI.
+
+| Name | Kind | Details |
+| ---- | ---- | ------- |
+| `recovery_cmdline()` | function | `recovery_cmdline(recovery_filesystem_uuid) -> str` |
+| `recovery_entry()` | function | `recovery_entry(live_system_version) -> str` |
+| `RecoverySystemStepExecutor` | class (StepExecutor) | `execute()`, `_sign_root_image()`, `_build_uki()`, `_sign_uki()` |
+| constants | - | `RECOVERY_UKI`, `RECOVERY_ENTRY`, `RECOVERY_BUILD_DIRECTORY`, `RECOVERY_SIGNING_DIRECTORY`, `SIGNING_CERTIFICATE_DAYS`, `ARCHISO_CERTIFICATE_FILES`, `CERTIFICATE_INITRAMFS` |
+
+**Imports from project:** `executors.base`, `executors.usb_boot`  
+**Imported by:** `install_steps.registry`, `tests/unit/test_installer`, `tests/unit/test_usb_boot`
 
 ---
 
@@ -666,9 +688,9 @@ BTRFS snapshots with snapper, bootable snapshot UKIs, and snapshot notifications
 | `snapper_volume_config()` | function | `snapper_volume_config(volume, allow_groups) -> str` |
 | `snapshot_manager_settings()` | function | `snapshot_manager_settings(snapshot_count, preferred_kernel) -> str` |
 | `snapshot_refresh_pacman_hook()` | function | `snapshot_refresh_pacman_hook(kernel_packages) -> str` |
-| `SnapperStepExecutor` | class (Executor) | `execute()`, `_prepare_snapshots_subvolume()` |
-| `BootableSnapshotsStepExecutor` | class (Executor) | `execute()` |
-| `SnapshotNotificationsStepExecutor` | class (Executor) | `execute()` |
+| `SnapperStepExecutor` | class (StepExecutor) | `execute()`, `_prepare_snapshots_subvolume()` |
+| `BootableSnapshotsStepExecutor` | class (StepExecutor) | `execute()` |
+| `SnapshotNotificationsStepExecutor` | class (StepExecutor) | `execute()` |
 | constants | - | `SNAPSHOT_MANAGER`, `SNAPSHOT_MANAGER_SETTINGS`, `SNAPSHOT_REFRESH_HOOK_SCRIPT`, `MICROCODE_PACKAGES`, `SNAP_PAC_ROOT_CONFIG`, `SNAPSHOT_BOOT_ENTRIES_SERVICE`, `SNAPSHOT_BOOT_ENTRIES_PATH`, `SNAPSHOT_REFRESH_HOOK_SCRIPT_CONTENT`, `SNAPPER_NOTIFY_SERVICE`, `SNAPPER_NOTIFY_PATH`, `SNAPPER_NOTIFY_SCRIPT` |
 
 **Imports from project:** `config.models`, `executors.base`  
@@ -676,13 +698,13 @@ BTRFS snapshots with snapper, bootable snapshot UKIs, and snapshot notifications
 
 ---
 
-#### `executors/storage.py` (313 lines)
+#### `executors/storage.py` (346 lines)
 
 Disk partitioning, LUKS encryption, BTRFS subvolumes, EFI partition and swapfile.
 
 | Name | Kind | Details |
 | ---- | ---- | ------- |
-| `StorageStepExecutor` | class (Executor) | `execute()`, `_cleanup_stale_mounts()`, `_partitions_exist()`, `_luks_is_usable()`, `_wipe_disk()`, `_create_partitions()`, `_prepare_loop_device()`, `_create_loop_partition_nodes()`, `_wait_for_partitions()`, `_setup_luks()`, `_format_luks()`, `_open_luks()`, `_setup_btrfs()`, `_create_subvolumes()`, `_mount_filesystems()`, `_mount_efi_partition()`, `_create_swapfile()` |
+| `StorageStepExecutor` | class (StepExecutor) | `execute()`, `_wipe_method()`, `_cleanup_stale_mounts()`, `_partitions_exist()`, `_luks_is_usable()`, `_wipe_disk()`, `_create_partitions()`, `_prepare_loop_device()`, `_create_loop_partition_nodes()`, `_wait_for_partitions()`, `_setup_luks()`, `_format_luks()`, `_open_luks()`, `_detached_header_option()`, `_data_offset_option()`, `_setup_btrfs()`, `_create_subvolumes()`, `_mount_filesystems()`, `_mount_efi_partition()`, `_create_swapfile()` |
 
 **Imports from project:** `config.models`, `executors.base`  
 **Imported by:** `install_steps.registry`, `tests/unit/test_installer`, `tests/unit/test_storage`
@@ -699,41 +721,49 @@ Hostname, timezone, locales, console keymap and the user account.
 | `locale_conf()` | function | `locale_conf(locale) -> str` |
 | `locales_to_generate()` | function | `locales_to_generate(locale) -> list[str]` |
 | `user_groups()` | function | `user_groups(runner, username) -> set[str]` |
-| `SystemStepExecutor` | class (Executor) | `execute()`, `_create_user()` |
+| `SystemStepExecutor` | class (StepExecutor) | `execute()`, `_create_user()` |
 
 **Imports from project:** `config.models`, `core.command`, `executors.base`  
 **Imported by:** `executors.docker`, `install_steps.registry`, `tests/unit/test_system`
 
 ---
 
-#### `executors/usb_backup.py` (188 lines)
+#### `executors/usb_backup.py` (187 lines)
 
-Backup of dotfiles, password databases, browser profiles and system config to the backup partition of a USB drive, plus the package list and config.yaml of this machine.
+Backup of dotfiles, password databases, browser profiles and system config to a backup partition (sync.backup_partition), plus the package list and config.yaml of this machine. the partition is the user's own: it is mounted, never formatted, and it is not the USB boot drive, whose partitions hold only what booting needs.
 
 | Name | Kind | Details |
 | ---- | ---- | ------- |
 | `BackupManifest` | dataclass | fields: `timestamp`, `hostname`, `categories`, `package_count`, `items_backed_up` |
 | `package_catalog()` | function | `package_catalog(package_names) -> str` |
-| `UsbBackupStepExecutor` | class (Executor) | `execute()`, `_copy_items()`, `_copy_item()`, `_explicitly_installed_packages()`, `_write_config_exports()`, `_expand_home()`, `_command_output()` |
-| constants | - | `BACKUP_PARTITION_NUMBER`, `BACKUP_MOUNT`, `CUSTOM_ITEMS_DIRECTORY`, `BACKUP_ITEMS` |
+| `UsbBackupStepExecutor` | class (StepExecutor) | `execute()`, `_copy_items()`, `_copy_item()`, `_explicitly_installed_packages()`, `_write_config_exports()`, `_expand_home()`, `_command_output()` |
+| constants | - | `BACKUP_MOUNT`, `CUSTOM_ITEMS_DIRECTORY`, `BACKUP_ITEMS` |
 
 **Imports from project:** `config.models`, `errors`, `executors.base`  
 **Imported by:** `cli`, `tests/unit/test_usb_backup`
 
 ---
 
-#### `executors/usb_boot.py` (247 lines)
+#### `executors/usb_boot.py` (433 lines)
 
-USB boot drive provisioning for a dual-boot machine whose Arch EFI lives on a removable drive. The internal disk is left to the other operating system's bootloader when the USB is absent.
+The USB boot drive: the only place the installed system can be started from.
 
 | Name | Kind | Details |
 | ---- | ---- | ------- |
-| `UsbBootDrive` | class | `device()`, `efi_partition()`, `iso_partition()`, `header_partition()`, `backup_partition()`, `provision()`, `install_bootloader()`, `relocate_internal_efi()`, `detach_luks_header()`, `install_recovery_iso()`, `sign_binaries()`, `_validate_device()`, `_partition()`, `_wait_for_partitions()`, `_format()`, `_copy_systemd_boot()`, `_resolve_iso_path()`, `_copy_iso()`, `_install_recovery_entry()` |
-| `UsbBootExecutor` | class (Executor) | `execute()` |
-| constants | - | `LUKS_HEADER_PARTITION_SIZE_MB`, `LUKS_HEADER_IMAGE`, `LUKS_HEADER_STAGING`, `USB_EFI_MOUNT`, `USB_ISO_MOUNT`, `USB_HEADER_MOUNT`, `ISO_LOOP_MOUNT`, `ISO_RECOVERY_SOURCES`, `SYSTEMD_BOOT_SOURCES`, `USB_BOOTLOADER_BINARIES`, `LIVE_ISO_BOOT_ENTRY` |
+| `removable_efi_fstab()` | function | `removable_efi_fstab(fstab, efi_partition_uuid) -> str` |
+| `usb_boot_settings()` | function | `usb_boot_settings(efi_partition_uuid) -> str` |
+| `usb_boot_guard_hook()` | function | `usb_boot_guard_hook() -> str` |
+| `snapshot_catch_up_rule()` | function | `snapshot_catch_up_rule(efi_partition_uuid) -> str` |
+| `recovery_partition_size_mb()` | function | `recovery_partition_size_mb(iso_size_bytes) -> int` |
+| `UsbDriveInspector` | class | `require_disk()`, `size_bytes()`, `wait_for_partition()`, `holds_luks_header()` |
+| `ArchIsoImage` | class | `size_bytes()`, `extract_live_system()`, `_read()`, `_read_text()`, `_read_number()` |
+| `UsbBootDriveStepExecutor` | class (StepExecutor) | `execute()`, `_keeps_existing_drive()`, `_require_capacity()`, `_release_drive()`, `_partition()`, `_store_recovery_system()` |
+| `UsbBootSafeguardsStepExecutor` | class (StepExecutor) | `execute()`, `_mount_efi_on_demand()`, `_install_update_guard()`, `_install_snapshot_catch_up()` |
+| `UsbBootDriveCloner` | class | `clone()`, `_existing_partitions()` |
+| constants | - | `MEBIBYTE`, `LUKS_HEADER_PARTITION_SIZE_MB`, `PARTITION_TABLE_SIZE_MB`, `RECOVERY_MOUNT`, `ARCHISO_DIRECTORY`, `ARCHISO_KERNEL`, `ARCHISO_INITRAMFS`, `ARCHISO_ROOT_IMAGE`, `ARCHISO_VERSION_FILE`, `ISO9660_SIGNATURE`, `ISO9660_SIGNATURE_OFFSET`, `ISO9660_BLOCK_COUNT_OFFSET`, `ISO9660_BLOCK_SIZE_OFFSET`, `USB_BOOT_SETTINGS_FILE`, `USB_BOOT_GUARD_SCRIPT`, `USB_BOOT_GUARD_HOOK`, `SNAPSHOT_CATCH_UP_SERVICE`, `SNAPSHOT_CATCH_UP_RULE`, `SNAPSHOT_REFRESH_PENDING_MARKER`, `SNAPSHOT_MANAGER`, `REMOVABLE_EFI_MOUNT_OPTIONS`, `BOOT_FILE_TARGETS`, `USB_BOOT_GUARD_SCRIPT_CONTENT`, `SNAPSHOT_CATCH_UP_SERVICE_CONTENT` |
 
-**Imports from project:** `config.models`, `core.command`, `executors.base`  
-**Imported by:** `cli`, `install_steps.registry`, `tests/unit/test_installer`, `tests/unit/test_usb_boot`
+**Imports from project:** `config.models`, `core.command`, `errors`, `executors.base`  
+**Imported by:** `cli`, `executors.recovery`, `install_steps.registry`, `tests/qemu/test_installation`, `tests/unit/test_installer`, `tests/unit/test_usb_boot`
 
 ---
 
@@ -806,7 +836,7 @@ Curses widget primitives for the TUI installer.
 
 ## 4. Configuration Files
 
-### `config/config.yaml` (510 lines)
+### `config/config.yaml` (509 lines)
 
 Main system configuration; every section maps to a dataclass in `config/models.py`:
 
@@ -819,9 +849,9 @@ Main system configuration; every section maps to a dataclass in `config/models.p
 - **firewall**: enabled, default policies, logging, block_icmp, ssh, allow_rules
 - **docker**: enabled, storage_driver, data_root, access_group
 - **notifications**: enabled
-- **sync**: backup_items, backup_categories
+- **sync**: backup_partition, backup_items, backup_categories
 - **migration**: enabled, preserve_home, preserve_secure_boot_keys, additional_paths
-- **usb_boot**: enabled, device, partition sizes, iso_path, detached_luks_header
+- **usb_boot**: enabled, device, recovery_system, iso_path
 - **secrets**: encrypted passwords, unlocked by `ARCH_INSTALLER_SECRETS_KEY`
 
 ### `config/dotfiles-sync.example.yaml` (42 lines)
@@ -855,7 +885,7 @@ Standalone dotfiles synchronization tool with KeePassXC SSH agent integration.
 - Lock file management to prevent concurrent operations
 - Git server auto-detection (GitHub/GitLab/Gitea/Bitbucket)
 
-### `scripts/manage_snapshot_entries.sh` (671 lines)
+### `scripts/manage_snapshot_entries.sh` (687 lines)
 
 BTRFS snapshot UKI manager for systemd-boot (Secure Boot compatible).
 
@@ -871,7 +901,7 @@ BTRFS snapshot UKI manager for systemd-boot (Secure Boot compatible).
 - Custom os-release per snapshot with timestamp and kernel name
 - Desktop notifications on success/failure
 
-### `scripts/verify_install.sh` (964 lines)
+### `scripts/verify_install.sh` (1014 lines)
 
 Post-installation verification tool.
 
@@ -885,8 +915,8 @@ Expected values come from `/etc/dali/expected-state.env`, written by the install
 
 ### Test Data Files
 
-- `tests/data/maximal_config.yaml` — Full config with all features enabled
-- `tests/data/minimal_config.yaml` — Minimal config with only required sections
+- `tests/data/maximal_config.yaml`: Full config with all features enabled
+- `tests/data/minimal_config.yaml`: Minimal config with only required sections
 
 ### 6.1 Unit Tests
 
@@ -902,7 +932,7 @@ Expected values come from `/etc/dali/expected-state.env`, written by the install
 
 | Test File | Lines | Test Classes | Modules Under Test |
 | --------- | ----- | ------------ | ------------------ |
-| `test_boot.py` | 94 | `TestKernelCmdline`, `TestUkiVariants`, `TestBootTemplates` (12 tests) | `config.models`, `executors.boot` |
+| `test_boot.py` | 160 | `TestKernelCmdline`, `TestUkiVariants`, `TestBootTemplates`, `TestKernelImagesWithUsbBootDrive`, `TestBootloaderOnUsbBootDrive` (17 tests) | `config.models`, `executors.boot` |
 | `test_config.py` | 149 | `TestConfigFile`, `TestInstallerConfigBuilder`, `TestExampleConfig` (15 tests) | `config.config_file`, `config.installer_config_builder`, `config.models`, `core.secrets` |
 | `test_core.py` | 67 | `TestCommandResult`, `TestSystemCommandRunner` (10 tests) | `core.command` |
 | `test_docker.py` | 43 | `TestDaemonJson`, `TestDockerExecutor` (4 tests) | `config.models`, `executors.docker` |
@@ -910,20 +940,20 @@ Expected values come from `/etc/dali/expected-state.env`, written by the install
 | `test_expected_state.py` | 90 | `TestExpectedStateFile`, `TestInstallerWritesExpectations` (5 tests) | `expected_state`, `installer` |
 | `test_firewall.py` | 75 | `TestFirewallExecutor` (7 tests) | `config.models`, `executors.firewall` |
 | `test_gpu.py` | 51 | `TestProprietaryNvidiaGating`, `TestNvidiaDriverExecutor`, `TestInitramfsHook` (6 tests) | `config.models`, `executors.gpu` |
-| `test_install_steps.py` | 86 | `TestRegistryCompleteness`, `TestRegistryContents` (9 tests) | `config.environment`, `config.installer_config_builder`, `config.models`, `install_steps.registry` |
-| `test_installer.py` | 89 | `TestStepSelection`, `TestInstallerRun` (5 tests) | `config.models`, `executors.base`, `executors.docker`, `executors.firewall`, `executors.gpu`, `executors.migration`, `executors.storage`, `executors.usb_boot`, `install_steps.registry`, `install_steps.wiring`, `installer` |
-| `test_installer_config_assembly.py` | 123 | `TestNonInteractive`, `TestInteractive`, `TestEncryptedPasswords` (8 tests) | `cli`, `config.environment`, `config.models`, `config.value_precedence`, `core.secrets` |
+| `test_install_steps.py` | 93 | `TestRegistryCompleteness`, `TestRegistryContents` (10 tests) | `config.environment`, `config.installer_config_builder`, `config.models`, `install_steps.registry` |
+| `test_installer.py` | 111 | `TestStepSelection`, `TestInstallerRun` (6 tests) | `config.models`, `executors.base`, `executors.docker`, `executors.firewall`, `executors.gpu`, `executors.migration`, `executors.recovery`, `executors.storage`, `executors.usb_boot`, `install_steps.registry`, `install_steps.wiring`, `installer` |
+| `test_installer_config_assembly.py` | 171 | `TestNonInteractive`, `TestInteractive`, `TestEncryptedPasswords`, `TestUsbBootValidation` (13 tests) | `cli`, `config.environment`, `config.models`, `config.value_precedence`, `core.secrets` |
 | `test_migration.py` | 77 | `TestMigrationStaging`, `TestMigrationRestore` (5 tests) | `config.models`, `executors.migration` |
 | `test_packages.py` | 97 | `TestPackageCollection`, `TestPackageInstall` (7 tests) | `config.models`, `executors.packages` |
 | `test_secrets.py` | 81 | `TestSecretCrypto`, `TestProductionCost` (10 tests) | `core.secrets` |
 | `test_secrets_file.py` | 226 | `TestWriteEncryptedSecrets`, `TestSecretsCommands` (12 tests) | `cli`, `config.config_file`, `config.models`, `config.secrets_file`, `core.log` |
-| `test_setup_session.py` | 196 | `TestQuestionOrderAndConditions`, `TestInheritedValues`, `TestDiskQuestion`, `TestSummary` (11 tests) | `config.config_file`, `config.models`, `config.value_precedence`, `install_steps.questions`, `setup.frontend`, `setup.session` |
+| `test_setup_session.py` | 236 | `TestQuestionOrderAndConditions`, `TestInheritedValues`, `TestDiskQuestion`, `TestSummary` (14 tests) | `config.config_file`, `config.models`, `config.value_precedence`, `install_steps.questions`, `setup.frontend`, `setup.session` |
 | `test_snapper.py` | 56 | `TestSnapperExecutor`, `TestSnapshotBootExecutor` (6 tests) | `config.models`, `executors.snapper` |
-| `test_storage.py` | 67 | `TestStorageExecutor` (5 tests) | `config.models`, `executors.storage` |
+| `test_storage.py` | 131 | `TestStorageExecutor`, `TestStorageWithUsbBootDrive` (11 tests) | `config.models`, `executors.storage` |
 | `test_system.py` | 67 | `TestSystemTemplates`, `TestSystemExecutor` (7 tests) | `config.models`, `executors.system` |
 | `test_tui.py` | 108 | `TestTextEntry`, `TestRadioMenu`, `TestCheckboxMenu`, `TestToggleMenu`, `TestSummaryScreen` (23 tests) | `setup.frontend`, `tui.widgets` |
-| `test_usb_backup.py` | 81 | `TestPackageCatalog`, `TestUsbBackupExecutor` (7 tests) | `config.models`, `core.command`, `executors.usb_backup` |
-| `test_usb_boot.py` | 81 | `TestUsbPartitionPaths`, `TestUsbBootDriveProvisioning`, `TestUsbBootExecutor` (7 tests) | `config.models`, `executors.usb_boot` |
+| `test_usb_backup.py` | 80 | `TestPackageCatalog`, `TestUsbBackupExecutor` (7 tests) | `config.models`, `core.command`, `executors.usb_backup` |
+| `test_usb_boot.py` | 364 | `TestUsbBootDriveLayout`, `TestInternalDiskName`, `TestUsbBootDriveRefusals`, `TestResumedInstallation`, `TestUsbBootSafeguards`, `TestSpareUsbBootDrive`, `TestRecoverySystem` (30 tests) | `config.models`, `executors.base`, `executors.recovery`, `executors.usb_boot` |
 | `test_value_precedence.py` | 62 | `TestInheritance`, `TestTuiChoices` (8 tests) | `config.value_precedence` |
 
 ### 6.2 QEMU Integration Tests
@@ -934,21 +964,21 @@ Full end-to-end tests running the installer in QEMU VMs with UEFI Secure Boot.
 
 | File | Lines | Purpose |
 | ---- | ----- | ------- |
-| `vm.py` | 588 | `QemuVm`: VM lifecycle (setup, start, stop, reboot with LUKS passphrase over serial), SSH/SCP via sshpass, console typing via monitor `sendkey`. OVMF/QEMU/sshpass discovery, `wait_for_vm_boot_and_network()` |
-| `conftest.py` | 237 | Fixtures `qemu_vm_with_network`, `qemu_vm_with_usb_disk_and_network`, `package_cache_proxy`, config fixtures. Options `--arch-iso`, `--qemu-memory`, `--qemu-cpus`, `--qemu-disk-size`, `--qemu-work-dir`, `--qemu-display`, `--keep-vm`, `--package-cache-dir`, `--offline-mode`. Per-xdist-worker SSH port ranges |
-| `assertions.py` | 1274 | `InstallationAssertions`: soft assertions (each prints ✓/✗, `raise_if_failed()` at the end) for partitions, LUKS, BTRFS, boot/UKI, secure boot, ESP random seed, system config, swap/hibernation, snapper, services, USB drive and backup |
+| `vm.py` | 615 | `QemuVm`: VM lifecycle (setup, start, stop, reboot with LUKS passphrase over serial), SSH/SCP via sshpass, console typing via monitor `sendkey`. OVMF/QEMU/sshpass discovery, `wait_for_vm_boot_and_network()` |
+| `conftest.py` | 253 | Fixtures `qemu_vm_with_network`, `qemu_vm_with_usb_disk_and_network`, `package_cache_proxy`, config fixtures. Options `--arch-iso`, `--qemu-memory`, `--qemu-cpus`, `--qemu-disk-size`, `--qemu-work-dir`, `--qemu-display`, `--keep-vm`, `--package-cache-dir`, `--offline-mode`. Per-xdist-worker SSH port ranges |
+| `assertions.py` | 1238 | `InstallationAssertions`: soft assertions (each prints ✓/✗, `raise_if_failed()` at the end) for partitions, LUKS, BTRFS, boot/UKI, secure boot, ESP random seed, system config, swap/hibernation, snapper, services, USB drive and backup |
 | `tmux_driver.py` | 80 | `TmuxSession`, `TmuxScreenInput`: runs a curses program in tmux on the VM, waits for each screen in the rendered pane, sends keys, and collects the exit code |
 | `package_cache.py` | 258 | `PackageCacheProxy`: local HTTP proxy caching pacman packages (fixture exists, no test uses it yet) |
 | `ssh_config.py` | 44 | Commands run before rebooting into the installed system: root SSH login, sshd, a ufw rule for port 22 (test access only), NetworkManager, serial console |
 | `uefi_setup.py` | 184 | Secure Boot status from EFI variables: `verify_secure_boot_properly_configured()`, `verify_setup_mode_before_install()`, `print_secure_boot_summary()` |
 | `tui_test_runner.py` | 50 | Copied to the VM: runs `run_tui_setup()` and dumps the resulting selections to JSON |
-| `qemu_manual_test.sh` | 548 | Launches a VM for manual testing (VNC + SSH) |
+| `qemu_manual_test.sh` | 550 | Launches a VM for manual testing (VNC + SSH) |
 
 **Test files:**
 
 | File | Lines | Tests |
 | ---- | ----- | ----- |
-| `test_installation.py` | 1227 | `TestQemuFullInstallation`: maximal config (all features), migration (home data and byte-identical secure boot keys), idempotent recovery (re-run with `WIPE_METHOD=skip` reuses the existing LUKS volume), env var overrides, USB boot drive, USB backup, TUI install driven through tmux (passwords inherited from encrypted secrets), unsigned EFI binaries rejected |
+| `test_installation.py` | 1154 | `TestQemuFullInstallation`: maximal config (all features), migration (home data and byte-identical secure boot keys), idempotent recovery (re-run with `WIPE_METHOD=skip` reuses the existing LUKS volume), env var overrides, USB boot drive, USB backup, TUI install driven through tmux (passwords inherited from encrypted secrets), unsigned EFI binaries rejected |
 | `test_tui.py` | 108 | `TestTuiInteraction`: drives every TUI screen through tmux (data-driven screen script, typed overrides and cursor moves relative to the inherited values) and compares the collected selections |
 
 ---
@@ -979,14 +1009,15 @@ executors.gpu ─── executors.base
 executors.migration ─── errors, executors.base
 executors.mirrors ─── executors.base
 executors.packages ─── config.models, executors.base
+executors.recovery ─── executors.base, executors.usb_boot
 executors.snapper ─── config.models, executors.base
 executors.storage ─── config.models, executors.base
 executors.system ─── config.models, core.command, executors.base
 executors.usb_backup ─── config.models, errors, executors.base
-executors.usb_boot ─── config.models, core.command, executors.base
+executors.usb_boot ─── config.models, core.command, errors, executors.base
 expected_state ─── config.models
 install_steps.questions ─── (no project imports)
-install_steps.registry ─── config.environment, config.models, executors.boot, executors.docker, executors.firewall, executors.gpu, executors.migration, executors.mirrors, executors.packages, executors.snapper, executors.storage, executors.system, executors.usb_boot, install_steps.questions, install_steps.wiring
+install_steps.registry ─── config.environment, config.models, executors.boot, executors.docker, executors.firewall, executors.gpu, executors.migration, executors.mirrors, executors.packages, executors.recovery, executors.snapper, executors.storage, executors.system, executors.usb_boot, install_steps.questions, install_steps.wiring
 install_steps.wiring ─── config.environment, config.models, executors.base, install_steps.questions
 installer ─── config.models, core.command, core.log, executors.base, expected_state, install_steps.registry, install_steps.wiring
 setup.frontend ─── install_steps.questions
@@ -1009,8 +1040,8 @@ tui.widgets ─── setup.frontend
 | `core.command` | `cli`, `executors.base`, `executors.system`, `executors.usb_boot`, `installer`, `setup.machine`, `tui.curses_frontend` |
 | `core.log` | `cli`, `installer` |
 | `core.secrets` | `cli`, `config.config_file` |
-| `errors` | `cli`, `config.config_file`, `config.environment`, `config.installer_config_builder`, `config.secrets_file`, `core.command`, `core.secrets`, `executors.migration`, `executors.usb_backup` |
-| `executors.base` | `executors.boot`, `executors.docker`, `executors.firewall`, `executors.gpu`, `executors.migration`, `executors.mirrors`, `executors.packages`, `executors.snapper`, `executors.storage`, `executors.system`, `executors.usb_backup`, `executors.usb_boot`, `install_steps.wiring`, `installer` |
+| `errors` | `cli`, `config.config_file`, `config.environment`, `config.installer_config_builder`, `config.secrets_file`, `core.command`, `core.secrets`, `executors.migration`, `executors.usb_backup`, `executors.usb_boot` |
+| `executors.base` | `executors.boot`, `executors.docker`, `executors.firewall`, `executors.gpu`, `executors.migration`, `executors.mirrors`, `executors.packages`, `executors.recovery`, `executors.snapper`, `executors.storage`, `executors.system`, `executors.usb_backup`, `executors.usb_boot`, `install_steps.wiring`, `installer` |
 | `executors.boot` | `install_steps.registry` |
 | `executors.docker` | `install_steps.registry` |
 | `executors.firewall` | `install_steps.registry` |
@@ -1018,11 +1049,12 @@ tui.widgets ─── setup.frontend
 | `executors.migration` | `install_steps.registry` |
 | `executors.mirrors` | `install_steps.registry` |
 | `executors.packages` | `install_steps.registry` |
+| `executors.recovery` | `install_steps.registry` |
 | `executors.snapper` | `install_steps.registry` |
 | `executors.storage` | `install_steps.registry` |
 | `executors.system` | `executors.docker`, `install_steps.registry` |
 | `executors.usb_backup` | `cli` |
-| `executors.usb_boot` | `cli`, `install_steps.registry` |
+| `executors.usb_boot` | `cli`, `executors.recovery`, `install_steps.registry` |
 | `expected_state` | `installer` |
 | `install_steps.questions` | `install_steps.registry`, `install_steps.wiring`, `setup.frontend`, `setup.machine`, `setup.session`, `tui.curses_frontend` |
 | `install_steps.registry` | `cli`, `installer`, `setup.session` |
@@ -1057,10 +1089,11 @@ secrets key ──→ decrypted_credentials() (Argon2id + AES-GCM) ────�
                         │
                         ├─ for each step in INSTALL_STEPS whose wiring.enabled(value) holds:
                         │     wiring.executor(config, runner).execute()
-                        │        Migration staging, Storage, Pacman mirrors, Packages,
-                        │        Migration restore, System, Docker, GPU driver,
-                        │        Kernel images, Bootloader, USB boot drive, Snapper,
-                        │        Bootable snapshots, Snapshot notifications, Firewall
+                        │        Migration staging, USB boot drive, Storage, Pacman mirrors,
+                        │        Packages, Migration restore, System, Docker, GPU driver,
+                        │        Kernel images, Bootloader, Recovery system, Snapper,
+                        │        Bootable snapshots, Snapshot notifications, Firewall,
+                        │        USB boot safeguards
                         │
                         ├─ _install_utility_scripts()
                         ├─ _write_expected_state() ──→ /etc/dali/expected-state.env (read by verify-install)

@@ -2,7 +2,7 @@
 
 import logging
 
-from arch_installer.executors.base import TARGET_ROOT, Executor
+from arch_installer.executors.base import TARGET_ROOT, StepExecutor
 
 logger = logging.getLogger(__name__)
 
@@ -18,7 +18,7 @@ INBOUND_ICMP_ACCEPT_RULES = (
 )
 
 
-class FirewallStepExecutor(Executor):
+class FirewallStepExecutor(StepExecutor):
     def execute(self) -> None:
         firewall = self._config.firewall
         logger.info(

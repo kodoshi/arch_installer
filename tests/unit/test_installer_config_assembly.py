@@ -1,13 +1,20 @@
+from dataclasses import replace
+
 import pytest
 import yaml
 
-from arch_installer.cli import assemble_installer_config
+from arch_installer.cli import assemble_installer_config, validate_for_install
 from arch_installer.config.environment import Environment
-from arch_installer.config.models import LUKS_PASSWORD_SECRET, USER_PASSWORD_SECRET
+from arch_installer.config.models import (
+    LUKS_PASSWORD_SECRET,
+    USER_PASSWORD_SECRET,
+    InstallerConfig,
+    WipeMethod,
+)
 from arch_installer.config.value_precedence import SettingValue, ValueSource
 from arch_installer.core.secrets import encrypt_secret
 from arch_installer.errors import ConfigurationError
-from tests.unit.conftest import UNIT_CONFIG_PATH
+from tests.unit.conftest import UNIT_CONFIG_PATH, build_config
 
 
 @pytest.fixture
@@ -121,3 +128,44 @@ class TestEncryptedPasswords:
         config = assemble_installer_config(environment, tui=None)
 
         assert config.credentials.luks_password == "env-disk"
+
+
+def usb_boot_install(**usb_boot_overrides) -> InstallerConfig:
+    base = build_config()
+    return build_config(
+        storage=replace(base.storage, target_disk="/dev/vda", wipe_method=WipeMethod.SECURE),
+        usb_boot=replace(
+            base.usb_boot,
+            **{
+                "enabled": True,
+                "device": "/dev/sdb",
+                "recovery_system": True,
+                "iso_path": "/dev/sr0",
+                **usb_boot_overrides,
+            },
+        ),
+    )
+
+
+class TestUsbBootValidation:
+    def test_a_complete_usb_boot_install_is_accepted(self):
+        validate_for_install(usb_boot_install())
+
+    def test_the_target_disk_cannot_be_the_drive(self):
+        with pytest.raises(ConfigurationError, match="both /dev/vda"):
+            validate_for_install(usb_boot_install(device="/dev/vda"))
+
+    def test_the_recovery_system_needs_an_iso(self):
+        with pytest.raises(ConfigurationError, match="needs an Arch ISO"):
+            validate_for_install(usb_boot_install(iso_path=""))
+
+    def test_no_iso_needed_without_the_recovery_system(self):
+        validate_for_install(usb_boot_install(recovery_system=False, iso_path=""))
+
+    @pytest.mark.parametrize("wipe_method", [WipeMethod.QUICK, WipeMethod.DISCARD])
+    def test_a_disk_without_random_fill_is_refused(self, wipe_method):
+        config = usb_boot_install()
+        config = replace(config, storage=replace(config.storage, wipe_method=wipe_method))
+
+        with pytest.raises(ConfigurationError, match="random data"):
+            validate_for_install(config)

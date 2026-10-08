@@ -103,8 +103,48 @@ class TestQuestionOrderAndConditions:
         run_setup(inherited_values(), frontend, TwoDisks())
 
         steps_in_order = list(dict.fromkeys(step for step, _ in frontend.asked))
-        assert steps_in_order[:4] == ["Migration staging", "Storage", "Packages", "System"]
+        assert steps_in_order[:5] == [
+            "Migration staging",
+            "USB boot drive",
+            "Storage",
+            "Packages",
+            "System",
+        ]
         assert steps_in_order[-1] == "Firewall"
+
+    def test_usb_boot_drive_off_asks_nothing_about_the_drive(self):
+        frontend = ScriptedFrontend({**PASSWORDS, "USB boot drive": False})
+
+        run_setup(inherited_values(), frontend, TwoDisks())
+
+        usb_questions = [label for step, label in frontend.asked if step == "USB boot drive"]
+        assert usb_questions == ["USB boot drive"]
+
+    def test_usb_boot_drive_offers_the_detected_disks_and_the_recovery_system(self):
+        frontend = ScriptedFrontend(
+            {
+                **PASSWORDS,
+                "USB boot drive": True,
+                "USB drive": "/dev/vdb",
+                "Recovery ISO": "/dev/sr0",
+            }
+        )
+
+        answers = run_setup(inherited_values(), frontend, TwoDisks())
+
+        usb_questions = [label for step, label in frontend.asked if step == "USB boot drive"]
+        assert usb_questions == ["USB boot drive", "USB drive", "Recovery system", "Recovery ISO"]
+        assert answers["usb_boot.device"] == "/dev/vdb"
+        assert answers["usb_boot.iso_path"] == "/dev/sr0"
+
+    def test_no_recovery_system_skips_its_iso(self):
+        frontend = ScriptedFrontend(
+            {**PASSWORDS, "USB boot drive": True, "USB drive": "/dev/vdb", "Recovery system": False}
+        )
+
+        run_setup(inherited_values(), frontend, TwoDisks())
+
+        assert ("USB boot drive", "Recovery ISO") not in frontend.asked
 
     def test_nvidia_driver_is_asked_only_for_an_nvidia_card(self):
         without_nvidia = ScriptedFrontend(PASSWORDS)

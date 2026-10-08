@@ -19,6 +19,7 @@ from tests.qemu.vm import QemuVm
 TUI_SESSION = (
     TmuxScreenInput("DALI", ("Enter",)),
     TmuxScreenInput("Migration staging: Installation type", ("Enter",)),  # fresh
+    TmuxScreenInput("USB boot drive: USB boot drive", ("Up", "Enter")),  # yes -> no
     TmuxScreenInput("Storage: Disk", ("Enter",)),  # /dev/vda (inherited, only disk)
     TmuxScreenInput("Storage: Wipe method", ("Down", "Enter")),  # quick -> secure
     TmuxScreenInput("Storage: Swap file", ("Enter",)),  # on
@@ -39,7 +40,6 @@ TUI_SESSION = (
     TmuxScreenInput("System: User password", ("testuser456", "Enter")),
     TmuxScreenInput("System: User password", ("testuser456", "Enter")),  # confirmation
     TmuxScreenInput("Docker: Docker", ("Up", "Enter")),  # on -> off
-    TmuxScreenInput("USB boot drive: USB boot drive", ("Up", "Enter")),  # yes -> no
     TmuxScreenInput("Bootable snapshots: Bootable snapshots", ("Enter",)),  # on
     TmuxScreenInput("Snapshot notifications: Desktop notifications", ("Enter",)),  # on
     TmuxScreenInput("Firewall: Firewall (UFW)", ("Enter",)),  # on

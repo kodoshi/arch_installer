@@ -1,4 +1,9 @@
-"""disk partitioning, LUKS encryption, BTRFS subvolumes, EFI partition and swapfile."""
+"""disk partitioning, LUKS encryption, BTRFS subvolumes, EFI partition and swapfile.
+
+with a USB boot drive the internal disk gets no partition table at all: the ciphertext
+fills it from the first byte to the last, the LUKS header is formatted onto the drive's
+header partition, and the drive's EFI partition is mounted as the system's ESP.
+"""
 
 import logging
 import time
@@ -7,7 +12,7 @@ from arch_installer.config.models import CRYPTROOT_MAPPER_NAME, WipeMethod
 from arch_installer.executors.base import (
     TARGET_EFI,
     TARGET_ROOT,
-    Executor,
+    StepExecutor,
     file_exists,
     is_mountpoint,
     path_exists,
@@ -16,7 +21,7 @@ from arch_installer.executors.base import (
 logger = logging.getLogger(__name__)
 
 
-class StorageStepExecutor(Executor):
+class StorageStepExecutor(StepExecutor):
     def execute(self) -> None:
         storage = self._config.storage
         if is_mountpoint(self._runner, TARGET_ROOT):
@@ -33,11 +38,12 @@ class StorageStepExecutor(Executor):
         logger.info("Converging storage on %s...", storage.target_disk)
         self._cleanup_stale_mounts()
 
-        # migration copied the old data to staging already and needs a new LUKS volume
-        # with the new password, so its disk is always wiped
-        wipe_method = WipeMethod.QUICK if self._config.migration.enabled else storage.wipe_method
-
-        if wipe_method != WipeMethod.SKIP:
+        wipe_method = self._wipe_method()
+        if self._config.usb_boot.enabled:
+            # the whole disk is the encrypted device, so there is nothing to partition
+            if wipe_method != WipeMethod.SKIP:
+                self._wipe_disk(wipe_method)
+        elif wipe_method != WipeMethod.SKIP:
             self._wipe_disk(wipe_method)
             self._create_partitions()
         elif not self._partitions_exist():
@@ -56,6 +62,14 @@ class StorageStepExecutor(Executor):
             self._create_swapfile()
         logger.info("Storage provisioning complete.")
 
+    def _wipe_method(self) -> WipeMethod:
+        if not self._config.migration.enabled:
+            return self._config.storage.wipe_method
+        # migration copied the old data to staging already and needs a new LUKS volume
+        # with the new password, so its disk is always wiped. ciphertext without a header
+        # only hides in random data, so a USB boot drive needs the random fill
+        return WipeMethod.SECURE if self._config.usb_boot.enabled else WipeMethod.QUICK
+
     def _cleanup_stale_mounts(self) -> None:
         self._runner.run(f"umount -R {TARGET_ROOT}", raise_on_nonzero_exit=False)
         self._runner.run("swapoff -a", raise_on_nonzero_exit=False)
@@ -65,22 +79,21 @@ class StorageStepExecutor(Executor):
         self._runner.run("dmsetup remove_all", raise_on_nonzero_exit=False)
 
     def _partitions_exist(self) -> bool:
-        storage = self._config.storage
         return all(
             self._runner.run(f"lsblk {partition}", raise_on_nonzero_exit=False).success
-            for partition in (storage.efi_partition, storage.root_partition)
+            for partition in (self._config.efi_partition, self._config.encrypted_device)
         )
 
     def _luks_is_usable(self) -> bool:
-        root_partition = self._config.storage.root_partition
         if not self._runner.run(
-            f"cryptsetup isLuks {root_partition}", raise_on_nonzero_exit=False
+            f"cryptsetup isLuks {self._config.luks_header_device}", raise_on_nonzero_exit=False
         ).success:
-            logger.info("Partition is not a valid LUKS volume")
+            logger.info("No valid LUKS header on %s", self._config.luks_header_device)
             return False
 
         unlocks = self._runner.run(
-            f"cryptsetup open --test-passphrase {root_partition}",
+            f"cryptsetup open --test-passphrase {self._detached_header_option()}"
+            f"{self._config.encrypted_device}",
             input_data=self._config.credentials.luks_password,
             raise_on_nonzero_exit=False,
         ).success
@@ -91,6 +104,12 @@ class StorageStepExecutor(Executor):
     def _wipe_disk(self, method: WipeMethod) -> None:
         disk = self._config.storage.target_disk
         logger.info("Wiping %s using method: %s...", disk, method)
+
+        # the partition table goes first: erasing it writes zeros, which the random fill
+        # then covers, so not one sector of a disk without a partition table stays zeroed
+        self._runner.run(f"wipefs -af {disk}", raise_on_nonzero_exit=False)
+        self._runner.run(f"sgdisk -Z {disk}", raise_on_nonzero_exit=False)
+        self._runner.run(f"wipefs -af {disk}", raise_on_nonzero_exit=False)
 
         if method == WipeMethod.SECURE:
             logger.info("Filling disk with random data (this will take some time)...")
@@ -109,9 +128,6 @@ class StorageStepExecutor(Executor):
             logger.info("Discarding blocks (blkdiscard)...")
             self._runner.run(f"blkdiscard -f {disk}", raise_on_nonzero_exit=False)
 
-        self._runner.run(f"wipefs -af {disk}", raise_on_nonzero_exit=False)
-        self._runner.run(f"sgdisk -Z {disk}", raise_on_nonzero_exit=False)
-        self._runner.run(f"wipefs -af {disk}", raise_on_nonzero_exit=False)
         # make the kernel forget everything it cached about the old layout
         self._runner.run(f"blockdev --rereadpt {disk}", raise_on_nonzero_exit=False)
         self._runner.run("udevadm settle", raise_on_nonzero_exit=False)
@@ -121,7 +137,7 @@ class StorageStepExecutor(Executor):
     def _create_partitions(self) -> None:
         disk = self._config.storage.target_disk
         efi_size_mb = self._config.storage.efi_size_mb
-        logger.info("Creating partitions on %s (EFI: %sMiB)...", disk, efi_size_mb)
+        logger.info("Creating partitions on %s...", disk)
 
         if "loop" in disk:
             self._prepare_loop_device(disk)
@@ -162,29 +178,33 @@ class StorageStepExecutor(Executor):
                     self._runner.run(f"mknod {device_node} b {major} {minor}")
 
     def _wait_for_partitions(self) -> None:
-        root_partition = self._config.storage.root_partition
+        encrypted_device = self._config.encrypted_device
         for _ in range(20):
-            if path_exists(self._runner, root_partition):
+            if path_exists(self._runner, encrypted_device):
                 return
             time.sleep(1)
             self._runner.run(
                 f"partprobe {self._config.storage.target_disk}", raise_on_nonzero_exit=False
             )
-        raise RuntimeError(f"Partition {root_partition} failed to appear")
+        raise RuntimeError(f"Partition {encrypted_device} failed to appear")
 
     def _setup_luks(self) -> None:
-        root_partition = self._config.storage.root_partition
+        encrypted_device = self._config.encrypted_device
         status = self._runner.run(
             f"cryptsetup status {CRYPTROOT_MAPPER_NAME}", raise_on_nonzero_exit=False
         )
         if status.success and "active" in status.stdout.lower():
-            if root_partition in status.stdout:
-                logger.info("LUKS volume already open on %s", root_partition)
+            # the whole device name is compared: /dev/vda is a prefix of /dev/vda2
+            backing_devices = [
+                line.split()[-1] for line in status.stdout.splitlines() if "device:" in line
+            ]
+            if encrypted_device in backing_devices:
+                logger.info("LUKS volume already open on %s", encrypted_device)
                 return
             raise RuntimeError(f"{CRYPTROOT_MAPPER_NAME} is open but points to the wrong device")
 
         if not self._runner.run(
-            f"cryptsetup isLuks {root_partition}", raise_on_nonzero_exit=False
+            f"cryptsetup isLuks {self._config.luks_header_device}", raise_on_nonzero_exit=False
         ).success:
             logger.info("Formatting LUKS volume...")
             self._format_luks()
@@ -202,18 +222,31 @@ class StorageStepExecutor(Executor):
             f"--pbkdf-memory {luks.pbkdf_memory} "
             f"--pbkdf-parallel {luks.pbkdf_parallel} "
             f"--iter-time {luks.pbkdf_time_ms} "
-            f"--key-file - {self._config.storage.root_partition}",
+            f"{self._data_offset_option()}"
+            f"--key-file - {self._config.encrypted_device}",
             input_data=self._config.credentials.luks_password,
         )
 
     def _open_luks(self) -> None:
         self._runner.run(
-            f"cryptsetup open --key-file - {self._config.storage.root_partition} {CRYPTROOT_MAPPER_NAME}",
+            f"cryptsetup open {self._detached_header_option()}"
+            f"--key-file - {self._config.encrypted_device} {CRYPTROOT_MAPPER_NAME}",
             input_data=self._config.credentials.luks_password,
         )
         # give device mapper a moment before udev settles the new node
         time.sleep(1)
         self._runner.run("udevadm settle", raise_on_nonzero_exit=False)
+
+    def _detached_header_option(self) -> str:
+        if not self._config.usb_boot.enabled:
+            return ""
+        return f"--header {self._config.usb_boot.luks_header_partition} "
+
+    def _data_offset_option(self) -> str:
+        if not self._config.usb_boot.enabled:
+            return ""
+        # the ciphertext starts at the disk's first byte
+        return f"{self._detached_header_option()}--offset 0 "
 
     def _setup_btrfs(self) -> None:
         cryptroot = self._config.storage.cryptroot_device
@@ -275,7 +308,7 @@ class StorageStepExecutor(Executor):
         self._mount_efi_partition()
 
     def _mount_efi_partition(self) -> None:
-        efi_partition = self._config.storage.efi_partition
+        efi_partition = self._config.efi_partition
         if (
             'TYPE="vfat"'
             not in self._runner.run(f"blkid {efi_partition}", raise_on_nonzero_exit=False).stdout

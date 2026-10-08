@@ -1,7 +1,7 @@
 """initramfs and unified kernel images (mkinitcpio), Secure Boot keys and systemd-boot."""
 
 import logging
-from dataclasses import asdict
+from dataclasses import asdict, dataclass
 
 from arch_installer.config.models import (
     CRYPTROOT_MAPPER_NAME,
@@ -14,9 +14,11 @@ from arch_installer.executors.base import (
     SBCTL_PK_KEY,
     TARGET_EFI,
     TARGET_ROOT,
-    Executor,
+    StepExecutor,
     detect_luks_uuid,
     file_exists,
+    partition_uuid,
+    stable_disk_path,
     write_file,
 )
 from arch_installer.executors.gpu import NVIDIA_INITRAMFS_MODULES
@@ -27,6 +29,25 @@ UKI_DIRECTORY = "/efi/EFI/Linux"
 # the UKI without extra kernel parameters always exists; its files carry the suffix "default"
 PLAIN_VARIANT = UkiVariantConfig(suffix="default", params="")
 BOOTLOADER_BINARIES = ("/efi/EFI/BOOT/BOOTX64.EFI", "/efi/EFI/systemd/systemd-bootx64.efi")
+# the LUKS header sits on the USB drive, so the initramfs must reach USB storage on any
+# machine; "?" lets mkinitcpio skip a module the kernel has built in
+USB_STORAGE_INITRAMFS_MODULES = (
+    "xhci_pci?",
+    "ehci_pci?",
+    "ohci_pci?",
+    "uhci_hcd?",
+    "usb_storage?",
+    "uas?",
+    "sd_mod?",
+)
+
+
+# the two devices that only unlock root together: the internal disk, named by its
+# /dev/disk/by-id link, and the drive's header partition, named by its partition UUID
+@dataclass(frozen=True)
+class DetachedLuksHeader:
+    encrypted_device_path: str
+    header_partition_uuid: str
 
 
 def mkinitcpio_conf(hooks: tuple[str, ...], modules: tuple[str, ...]) -> str:
@@ -79,7 +100,12 @@ editor {"yes" if loader.editor else "no"}
 """
 
 
-def kernel_cmdline(config: InstallerConfig, luks_uuid: str, resume_offset: str | None) -> str:
+def kernel_cmdline(
+    config: InstallerConfig,
+    luks_uuid: str,
+    detached_header: DetachedLuksHeader | None,
+    resume_offset: str | None,
+) -> str:
     cmdline = config.boot.cmdline
     parts = [
         f"rd.luks.name={luks_uuid}={CRYPTROOT_MAPPER_NAME}",
@@ -88,9 +114,13 @@ def kernel_cmdline(config: InstallerConfig, luks_uuid: str, resume_offset: str |
         f"rootfstype={cmdline.rootfstype}",
         f"rootflags={cmdline.rootflags}",
     ]
-    # with detached LUKS headers the initrd reads the header from the USB header partition
-    if config.usb_boot.enabled and config.usb_boot.detached_luks_header:
-        parts.append(f"rd.luks.options={luks_uuid}=header=/luks_header.img:LABEL=LUKSHEADER")
+    if detached_header:
+        # the LUKS UUID lives only in the header, so the data device is named explicitly
+        parts.append(f"rd.luks.data={luks_uuid}={detached_header.encrypted_device_path}")
+        parts.append(
+            f"rd.luks.options={luks_uuid}="
+            f"header=/dev/disk/by-partuuid/{detached_header.header_partition_uuid}"
+        )
     if cmdline.quiet:
         parts.append("quiet")
     for parameter, value in asdict(cmdline.hardening).items():
@@ -114,20 +144,21 @@ def uki_variants(config: InstallerConfig) -> tuple[UkiVariantConfig, ...]:
     return (PLAIN_VARIANT, *extra)
 
 
-class KernelImagesStepExecutor(Executor):
+class KernelImagesStepExecutor(StepExecutor):
     def execute(self) -> None:
         hooks = self._config.boot.hooks
         modules = (
-            NVIDIA_INITRAMFS_MODULES if self._config.gpu.uses_proprietary_nvidia_driver else ()
+            *(NVIDIA_INITRAMFS_MODULES if self._config.gpu.uses_proprietary_nvidia_driver else ()),
+            *(USB_STORAGE_INITRAMFS_MODULES if self._config.usb_boot.enabled else ()),
         )
         write_file(
             self._runner, f"{TARGET_ROOT}/etc/mkinitcpio.conf", mkinitcpio_conf(hooks, modules)
         )
         self._runner.run(f"mkdir -p {TARGET_ROOT}{UKI_DIRECTORY}")
 
-        luks_uuid = detect_luks_uuid(self._runner, self._config.storage.root_partition)
+        luks_uuid = detect_luks_uuid(self._runner, self._config.luks_header_device)
         if not luks_uuid:
-            raise RuntimeError("Could not determine LUKS partition UUID")
+            raise RuntimeError(f"No LUKS header on {self._config.luks_header_device}")
 
         kernels = [
             kernel
@@ -145,7 +176,9 @@ class KernelImagesStepExecutor(Executor):
             ", ".join(kernels),
             ", ".join(variant.suffix for variant in variants),
         )
-        cmdline = kernel_cmdline(self._config, luks_uuid, self._swapfile_resume_offset())
+        cmdline = kernel_cmdline(
+            self._config, luks_uuid, self._detached_header(), self._swapfile_resume_offset()
+        )
 
         self._runner.run(f"mkdir -p {TARGET_ROOT}/etc/kernel")
         for kernel in kernels:
@@ -169,6 +202,19 @@ class KernelImagesStepExecutor(Executor):
         logger.info("Generating UKIs...")
         self._runner.run_as_chroot("mkinitcpio -P")
         self._sign_ukis(kernels, variants)
+
+    def _detached_header(self) -> DetachedLuksHeader | None:
+        if not self._config.usb_boot.enabled:
+            return None
+        encrypted_device_path = stable_disk_path(self._runner, self._config.encrypted_device)
+        if not encrypted_device_path:
+            raise RuntimeError(f"{self._config.encrypted_device} has no /dev/disk/by-id name")
+        return DetachedLuksHeader(
+            encrypted_device_path=encrypted_device_path,
+            header_partition_uuid=partition_uuid(
+                self._runner, self._config.usb_boot.luks_header_partition
+            ),
+        )
 
     def _swapfile_resume_offset(self) -> str | None:
         swap = self._config.storage.swap
@@ -251,12 +297,12 @@ class KernelImagesStepExecutor(Executor):
                     self._runner.run_as_chroot(f"sbctl sign -s {path}", raise_on_nonzero_exit=False)
 
 
-class BootloaderStepExecutor(Executor):
+class BootloaderStepExecutor(StepExecutor):
     def execute(self) -> None:
-        # with a USB boot drive the ESP contents move to the USB, so an NVRAM entry for
-        # the internal ESP would point at nothing
-        no_variables = " --no-variables" if self._config.usb_boot.enabled else ""
-        self._runner.run_as_chroot(f"bootctl install --esp-path=/efi{no_variables}")
+        if self._config.usb_boot.enabled:
+            self._install_on_usb_boot_drive()
+        else:
+            self._runner.run_as_chroot("bootctl install --esp-path=/efi")
         write_file(
             self._runner, f"{TARGET_EFI}/loader/loader.conf", loader_conf(self._config.boot.loader)
         )
@@ -264,3 +310,13 @@ class BootloaderStepExecutor(Executor):
         for path in BOOTLOADER_BINARIES:
             if file_exists(self._runner, f"{TARGET_ROOT}{path}"):
                 self._runner.run_as_chroot(f"sbctl sign -s {path}", raise_on_nonzero_exit=False)
+
+    def _install_on_usb_boot_drive(self) -> None:
+        # the firmware starts the drive through its removable-media path
+        # (EFI/BOOT/BOOTX64.EFI), so the machine's NVRAM keeps no boot entry and no
+        # system token pointing at it. a random seed would tie the portable drive to
+        # this machine's token, and its refresh service would write that token
+        self._runner.run_as_chroot(
+            "bootctl install --esp-path=/efi --variables=no --random-seed=no"
+        )
+        self._runner.run_as_chroot("systemctl mask systemd-boot-random-seed.service")

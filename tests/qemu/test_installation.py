@@ -1,3 +1,4 @@
+import time
 from pathlib import Path
 
 import pytest
@@ -5,6 +6,7 @@ import yaml
 
 from arch_installer.config.models import LUKS_PASSWORD_SECRET, USER_PASSWORD_SECRET
 from arch_installer.core.secrets import encrypt_secret
+from arch_installer.executors.usb_boot import SNAPSHOT_REFRESH_PENDING_MARKER
 from tests.qemu.assertions import InstallationAssertions
 from tests.qemu.ssh_config import SSH_CONFIG_COMMANDS_FOR_INSTALLED_SYSTEM
 from tests.qemu.tmux_driver import INSTALL_TMUX_IF_MISSING, TmuxScreenInput, TmuxSession
@@ -13,9 +15,15 @@ from tests.qemu.uefi_setup import (
     verify_secure_boot_properly_configured,
     verify_setup_mode_before_install,
 )
-from tests.qemu.vm import QemuVm
+from tests.qemu.vm import QemuVm, wait_for_vm_boot_and_network
 
 INSTALL_TIMEOUT = 1800
+# an installation, a clone and six boots
+USB_BOOT_TEST_TIMEOUT = 4200
+LUKS_PASSPHRASE = "testpassword"
+INTERNAL_DISK = "/dev/vda"
+USB_BOOT_DRIVE = "/dev/sda"
+SPARE_DRIVE = "/dev/sdb"
 SECRETS_KEY = "12345678"
 PROJECT_ROOT = Path(__file__).parent.parent.parent
 QEMU_DATA_DIRECTORY = Path(__file__).parent.parent / "data"
@@ -25,20 +33,6 @@ SBCTL_KEY_FILES = " ".join(
 # glibc is upgraded together with python: an older live ISO otherwise ends up with a
 # python built against a newer glibc (partial upgrade) that fails on import
 BASE_PACKAGES = "glibc python python-yaml python-cryptography python-cffi make"
-
-
-def create_fake_iso(vm: QemuVm) -> None:
-    vm.run_ssh_command(
-        "mkdir -p /tmp/fake-iso/EFI/BOOT && "
-        "cp /usr/lib/systemd/boot/efi/systemd-bootx64.efi "
-        "/tmp/fake-iso/EFI/BOOT/BOOTX64.EFI",
-        timeout=30,
-    )
-    exit_code, _, stderr = vm.run_ssh_command(
-        "mkisofs -o /root/archlinux.iso -J -R /tmp/fake-iso",
-        timeout=60,
-    )
-    assert exit_code == 0, f"Failed to create fake ISO: {stderr}"
 
 
 def setup_vm_for_install(
@@ -103,12 +97,25 @@ def run_checked(vm: QemuVm, commands: list[str], timeout: int = 60) -> None:
         )
 
 
-def configure_ssh_and_reboot(vm: QemuVm, luks_passphrase: str = "testpassword") -> None:
-    """configure SSH for installed system and reboot."""
+def prepare_ssh_access_to_installed_system(vm: QemuVm) -> None:
     for command in SSH_CONFIG_COMMANDS_FOR_INSTALLED_SYSTEM:
-        exit_code, _, _ = vm.run_ssh_command(command, timeout=120)
+        exit_code, _, _ = vm.run_ssh_command(command, timeout=600)
         if exit_code != 0:
             print(f"    warning: SSH setup command failed: {command}")
+
+
+def wait_until(vm: QemuVm, command: str, timeout: int) -> bool:
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if vm.run_ssh_command(command, timeout=60)[0] == 0:
+            return True
+        time.sleep(5)
+    return False
+
+
+def configure_ssh_and_reboot(vm: QemuVm, luks_passphrase: str = "testpassword") -> None:
+    """configure SSH for installed system and reboot."""
+    prepare_ssh_access_to_installed_system(vm)
     vm.run_ssh_command("umount -R /mnt 2>/dev/null || true", timeout=60)
     vm.reboot(wait_for_ssh=True, timeout=300, luks_passphrase=luks_passphrase)
 
@@ -119,6 +126,7 @@ def configure_ssh_and_reboot(vm: QemuVm, luks_passphrase: str = "testpassword") 
 TMUX_INSTALL_SESSION = (
     TmuxScreenInput("DALI", ("Enter",)),
     TmuxScreenInput("Migration staging: Installation type", ("Enter",)),  # fresh
+    TmuxScreenInput("USB boot drive: USB boot drive", ("Up", "Enter")),  # yes -> no
     TmuxScreenInput("Storage: Disk", ("Enter",)),  # /dev/vda
     TmuxScreenInput("Storage: Wipe method", ("Enter",)),  # quick
     TmuxScreenInput("Storage: Swap file", ("Enter",)),  # on
@@ -135,7 +143,6 @@ TMUX_INSTALL_SESSION = (
     TmuxScreenInput("System: Keymap", ("Enter",)),
     TmuxScreenInput("Keep the inherited password", ("Enter",)),  # user password
     TmuxScreenInput("Docker: Docker", ("Enter",)),  # on
-    TmuxScreenInput("USB boot drive: USB boot drive", ("Up", "Enter")),  # yes -> no
     TmuxScreenInput("Bootable snapshots: Bootable snapshots", ("Enter",)),
     TmuxScreenInput("Snapshot notifications: Desktop notifications", ("Enter",)),
     TmuxScreenInput("Firewall: Firewall (UFW)", ("Enter",)),
@@ -749,288 +756,208 @@ files:
 
     @pytest.mark.qemu
     @pytest.mark.slow
-    def test_usb_boot_drive_stores_efi_and_luks_headers_on_second_disk(
+    @pytest.mark.timeout(USB_BOOT_TEST_TIMEOUT)
+    def test_usb_boot_drive_starts_a_system_whose_disk_holds_only_ciphertext(
         self,
-        qemu_vm_with_usb_disk_and_network: QemuVm,
+        qemu_vm_with_usb_drives_and_network: QemuVm,
     ) -> None:
-        """USB boot drive test with detached LUKS headers and EFI on USB.
+        """plausible deniability encryption with a USB boot drive, from install to recovery.
 
-        verifies the PDE (plausible deniability encryption) feature:
-        - USB drive (/dev/vdb) gets 4 partitions: EFI, ISO, LUKS header, Backup
-        - EFI contents (UKIs, bootloader, loader.conf) are relocated to USB
-        - LUKS header is detached from main disk and stored on USB
-        - main disk's encrypted partition has no visible LUKS header
-        - internal EFI partition is wiped of boot files
-        - recovery ISO boot entry exists on USB
-        - backup partition is formatted with USBBACKUP label
+        the internal disk holds ciphertext in random data without a partition table, the drive holds
+        the EFI partition, the LUKS header and the recovery ISO. booting covers every entry
+        the drive's systemd-boot menu offers: the kernels, a snapshot, the recovery system,
+        the spare drive alone, and no drive at all. kernel images follow package updates
+        on the drive, and pacman refuses them while the drive is unplugged.
         """
-        vm = qemu_vm_with_usb_disk_and_network
-
-        config_path = QEMU_DATA_DIRECTORY / "maximal_config.yaml"
-        with open(config_path) as config_file:
-            config = yaml.safe_load(config_file)
-        expected_subvolumes = [
-            subvolume["name"] for subvolume in config["storage"]["btrfs"]["subvolumes"]
-        ]
-
+        vm = qemu_vm_with_usb_drives_and_network
+        config = load_test_config("maximal_config.yaml")
         assertions = InstallationAssertions(vm)
+        boot_drive_image, spare_drive_image = vm.paths.usb_disk_images
+        kernel_packages = [kernel["package"] for kernel in config["boot"]["kernels"]]
+        first_kernel_uki = f"/efi/EFI/Linux/arch-{kernel_packages[0]}-default.efi"
 
-        print("\n=== phase 1: pre-install verification ===")
-        print_secure_boot_summary(vm, "PRE-INSTALL (USB)")
-        assert verify_setup_mode_before_install(vm), (
-            "UEFI must be in setup mode before installation for key enrollment"
-        )
-
-        # verify second disk exists
-        exit_code, stdout, _ = vm.run_ssh_command("lsblk -dno NAME,SIZE /dev/vdb", timeout=30)
-        assert exit_code == 0, f"USB disk /dev/vdb not found: {stdout}"
-        print(f"    USB disk detected: {stdout.strip()}")
-
-        print("\n=== phase 2: run installer with USB boot enabled ===")
-        setup_vm_for_install(vm, config_path=config_path, extra_packages="cdrtools")
-        create_fake_iso(vm)
-
+        print("\n=== phase 1: install with the USB boot drive ===")
+        assert verify_setup_mode_before_install(vm), "UEFI must start in setup mode"
+        run_checked(vm, ['test "$(cat /sys/block/sda/removable)" = 1'])
+        setup_vm_for_install(vm, config_path=QEMU_DATA_DIRECTORY / "maximal_config.yaml")
         exit_code, stdout, stderr = run_make_install(
             vm,
-            {
-                "LUKS_PASSWORD": "testpassword",
-                "USER_PASSWORD": "testpassword",
-                "NON_INTERACTIVE": "true",
-                "TARGET_DISK": "/dev/vda",
-                "SWAP_SIZE_MB": "1024",
-                "ENABLE_SNAPSHOT_BOOT": "true",
-                "ENABLE_HIBERNATION": "true",
-                "ENABLE_FIREWALL": "true",
-                "ENABLE_DOCKER": "true",
-                "GPU_VENDOR": "none",
-                "CPU_VENDOR": "amd",
-                "WIPE_METHOD": "quick",
-                "ENABLE_USB_BOOT": "true",
-                "USB_BOOT_DEVICE": "/dev/vdb",
-            },
+            unattended_install_env(
+                WIPE_METHOD="secure",
+                ENABLE_USB_BOOT="true",
+                USB_BOOT_DEVICE=USB_BOOT_DRIVE,
+                ENABLE_RECOVERY_SYSTEM="true",
+                ISO_PATH="/dev/sr0",
+                ENABLE_SNAPSHOT_BOOT="true",
+                ENABLE_DOCKER="false",
+                SELECTED_DESKTOPS="hyprland",
+                GPU_VENDOR="none",
+                CPU_VENDOR="amd",
+            ),
         )
         assert exit_code == 0, f"Installation failed:\nstdout: {stdout}\nstderr: {stderr}"
-        print("    installation with USB boot completed successfully")
 
-        print("\n=== phase 3: verify USB drive layout (before reboot) ===")
+        print("\n=== phase 2: what each disk holds ===")
+        assertions.assert_internal_disk_holds_only_ciphertext(INTERNAL_DISK)
+        assertions.assert_usb_boot_drive_layout(USB_BOOT_DRIVE, recovery_system=True)
+        assertions.assert_drive_header_unlocks(f"{USB_BOOT_DRIVE}2", INTERNAL_DISK, LUKS_PASSPHRASE)
+        assertions.raise_if_failed()
 
-        assertions.assert_usb_drive_partitioned("/dev/vdb")
-
-        # mount USB EFI partition for inspection
-        vm.run_ssh_command("mkdir -p /mnt/usb-efi", timeout=30)
-        vm.run_ssh_command("mount /dev/vdb1 /mnt/usb-efi", timeout=30)
-
-        assertions.assert_usb_efi_partition_has_bootloader("/mnt/usb-efi")
-        assertions.assert_usb_efi_partition_has_uki_files("/mnt/usb-efi")
-        assertions.assert_usb_efi_partition_has_loader_conf("/mnt/usb-efi")
-        assertions.assert_usb_recovery_entry_exists("/mnt/usb-efi")
-        assertions.assert_usb_efi_files_signed("/mnt/usb-efi")
-
-        # list all .efi files for diagnostics
-        _, efi_listing, _ = vm.run_ssh_command(
-            "find /mnt/usb-efi -name '*.efi' -o -name '*.EFI' 2>/dev/null", timeout=30
+        print("\n=== phase 3: clone a spare drive, boot from the original ===")
+        prepare_ssh_access_to_installed_system(vm)
+        run_checked(vm, ["sync", "swapoff -a", "umount -R /mnt"])
+        run_checked(
+            vm,
+            [
+                "cd /root/arch_installer && make clone_usb_boot "
+                f"USB_DEVICE={USB_BOOT_DRIVE} SPARE_DEVICE={SPARE_DRIVE}"
+            ],
+            timeout=900,
         )
-        print(f"    USB EFI files:\n{efi_listing}")
+        assertions.assert_drive_header_unlocks(f"{SPARE_DRIVE}2", INTERNAL_DISK, LUKS_PASSPHRASE)
+        # both drives carry the same partition UUIDs, so only one is plugged in at a time
+        vm.paths.attached_usb_disk_images = [boot_drive_image]
+        vm.reboot(luks_passphrase=LUKS_PASSPHRASE)
 
-        vm.run_ssh_command("umount /mnt/usb-efi", timeout=30)
-
-        # check LUKS header partition
-        print("    checking USB has detached LUKS header...")
-        vm.run_ssh_command("mkdir -p /mnt/usb-header", timeout=30)
-        vm.run_ssh_command("mount /dev/vdb3 /mnt/usb-header", timeout=30)
-        assertions.assert_usb_header_partition_has_luks_header("/mnt/usb-header")
-        vm.run_ssh_command("umount /mnt/usb-header", timeout=30)
-
-        # check internal disk has no visible LUKS header
-        assertions.assert_main_disk_has_no_luks_header("/dev/vda2")
-
-        # check internal EFI was wiped of boot files
-        assertions.assert_internal_efi_has_no_boot_files("/mnt/efi")
-        assertions.assert_btrfs_subvolumes_exist(expected_subvolumes)
-
-        print("\n=== phase 4: verify backup partition (4th partition) ===")
-
-        assertions.assert_usb_backup_partition_exists("/dev/vdb")
-        assertions.assert_usb_backup_partition_label("/dev/vdb", "USBBACKUP")
-
-        # list partition layout for diagnostics
-        _, layout, _ = vm.run_ssh_command("lsblk -o NAME,SIZE,FSTYPE,LABEL /dev/vdb", timeout=30)
-        print(f"    USB partition layout:\n{layout}")
-
-        print("\n=== phase 5: verify snapshot boot entries on USB drive ===")
-
-        # pre-reboot checks use /mnt paths directly (not assertion methods
-        # which assume a booted system)
-        print("    checking snapper config was created...")
-        exit_code, _, _ = vm.run_ssh_command(
-            "test -f /mnt/etc/snapper/configs/root",
-            timeout=30,
+        print("\n=== phase 4: the booted system ===")
+        assertions.assert_booted_through_the_detached_header(INTERNAL_DISK)
+        assertions.assert_efi_mounted_on_demand_from(f"{USB_BOOT_DRIVE}1")
+        assertions.assert_firmware_keeps_no_boot_traces()
+        assertions.assert_boot_menu_lists(
+            [*(f"arch-{package}-default.efi" for package in kernel_packages), "arch-recovery.conf"]
         )
-        assert exit_code == 0, "snapper config 'root' not found at /mnt/etc/snapper/configs/root"
+        assertions.assert_every_boot_file_signed()
+        assertions.assert_verify_install_finds_no_failures(config["system"]["hostname"])
 
-        print("    checking manage-snapshot-ukis script exists...")
-        exit_code, _, _ = vm.run_ssh_command(
-            "test -x /mnt/usr/local/bin/manage-snapshot-ukis",
-            timeout=30,
+        print("\n=== phase 5: a new snapshot gets its boot entry on the drive ===")
+        exit_code, snapshot_number, stderr = vm.run_ssh_command(
+            "snapper -c root create -d 'usb boot drive test' --print-number", timeout=60
         )
-        assert exit_code == 0, "manage-snapshot-ukis not found or not executable"
-
-        print("    checking snapshot hooks deployed...")
-        exit_code, _, _ = vm.run_ssh_command(
-            "test -f /mnt/etc/pacman.d/hooks/95-snapshot-uki-refresh.hook",
-            timeout=30,
+        assert exit_code == 0, f"snapper create failed: {stderr}"
+        snapshot_number = snapshot_number.strip()
+        snapshot_uki_pattern = f"/efi/EFI/Linux/arch-snapshot-{snapshot_number}-*.efi"
+        assert wait_until(vm, f"ls {snapshot_uki_pattern}", timeout=300), (
+            f"no snapshot UKI for snapshot {snapshot_number} on the drive"
         )
-        assert exit_code == 0, "snapshot UKI refresh pacman hook not deployed"
+        _, snapshot_entry, _ = vm.run_ssh_command(f"basename {snapshot_uki_pattern}")
+        snapshot_entry = snapshot_entry.strip()
+        assertions.assert_boot_menu_lists([snapshot_entry])
 
-        print("    creating test snapshot for USB boot entry verification...")
+        print("\n=== phase 6: a package update rebuilds the kernel images on the drive ===")
+        _, modified_before, _ = vm.run_ssh_command(f"stat -c %Y {first_kernel_uki}")
         exit_code, stdout, stderr = vm.run_ssh_command(
-            "arch-chroot /mnt snapper --no-dbus -c root create -d 'USB snapshot test' --print-number",
-            timeout=60,
+            "pacman -S --noconfirm amd-ucode", timeout=900
         )
-        assert exit_code == 0, f"Failed to create snapshot: {stderr}"
-        snapshot_id = stdout.strip()
-        print(f"    created snapshot {snapshot_id}")
+        assert exit_code == 0, f"update with the drive plugged in failed: {stdout}{stderr}"
+        _, modified_after, _ = vm.run_ssh_command(f"stat -c %Y {first_kernel_uki}")
+        assert int(modified_after) > int(modified_before), "the drive's UKIs were not rebuilt"
+        assertions.assert_every_boot_file_signed()
 
-        print("    running manage-snapshot-ukis refresh to generate snapshot UKIs...")
+        print("\n=== phase 7: the drive unplugged, then plugged back in ===")
+        run_checked(vm, ["echo 1 > /sys/block/sda/device/delete"])
+        assert wait_until(vm, f"test ! -e {USB_BOOT_DRIVE}", timeout=30)
         exit_code, stdout, stderr = vm.run_ssh_command(
-            "arch-chroot /mnt manage-snapshot-ukis refresh",
-            timeout=120,
+            "pacman -S --noconfirm amd-ucode", timeout=300
         )
-        assert exit_code == 0, f"Snapshot UKI refresh failed: {stderr}"
-
-        print("    mounting USB EFI to check snapshot UKIs...")
-        vm.run_ssh_command("mkdir -p /mnt/usb-efi-check", timeout=30)
-        vm.run_ssh_command("mount /dev/vdb1 /mnt/usb-efi-check", timeout=30)
-
-        exit_code, stdout, _ = vm.run_ssh_command(
-            "find /mnt/usb-efi-check -name '*snapshot*' -o -name '*snap*' 2>/dev/null",
-            timeout=30,
+        assert exit_code != 0, "pacman updated the boot files without the drive"
+        assert "The USB boot drive is not plugged in" in stdout + stderr, stdout + stderr
+        run_checked(
+            vm, ["manage-snapshot-ukis refresh", f"test -f {SNAPSHOT_REFRESH_PENDING_MARKER}"]
         )
-        print(f"    snapshot-related files on USB EFI:\n{stdout}")
-
-        exit_code, stdout, _ = vm.run_ssh_command(
-            "ls -la /mnt/usb-efi-check/EFI/Linux/ 2>/dev/null",
-            timeout=30,
+        run_checked(
+            vm, ["for scan in /sys/class/scsi_host/host*/scan; do echo '- - -' > $scan; done"]
         )
-        print(f"    USB EFI/Linux contents:\n{stdout}")
+        assert wait_until(vm, f"test -b {USB_BOOT_DRIVE}1", timeout=60), "the drive came back"
+        assert wait_until(
+            vm,
+            f"test ! -e {SNAPSHOT_REFRESH_PENDING_MARKER} && "
+            "test $(systemctl show -p ActiveState --value snapshot-ukis-catch-up.service) "
+            "= inactive && test $(systemctl show -p ExecMainStatus --value "
+            "snapshot-ukis-catch-up.service) = 0",
+            timeout=600,
+        ), "plugging the drive back in did not build the skipped snapshot UKIs"
 
-        vm.run_ssh_command("umount /mnt/usb-efi-check", timeout=30)
+        print("\n=== phase 8: boot the snapshot from the drive's menu ===")
+        run_checked(vm, [f"bootctl set-oneshot {snapshot_entry}"])
+        vm.reboot(luks_passphrase=LUKS_PASSPHRASE)
+        _, root_options, _ = vm.run_ssh_command("findmnt -n -o OPTIONS /")
+        assert f"subvol=/@snapshots/{snapshot_number}/snapshot" in root_options, root_options
+
+        print("\n=== phase 9: boot the recovery system under Secure Boot ===")
+        run_checked(vm, ["bootctl set-oneshot arch-recovery.conf"])
+        vm.reboot(wait_for_ssh=False)
+        assert wait_for_vm_boot_and_network(vm, timeout=300), "the recovery system did not boot"
+        _, cmdline, _ = vm.run_ssh_command("cat /proc/cmdline")
+        assert "cms_verify=y" in cmdline and "archisodevice=UUID=" in cmdline, cmdline
+        # archiso copies the verified root image to RAM and releases the drive
+        _, recovery_uuid, _ = vm.run_ssh_command(f"blkid -s UUID -o value {USB_BOOT_DRIVE}3")
+        assert f"archisodevice=UUID={recovery_uuid.strip()}" in cmdline, cmdline
+        run_checked(vm, ["findmnt /run/archiso/airootfs"])
+        _, secure_boot, _ = vm.run_ssh_command(
+            "od -An -t u1 /sys/firmware/efi/efivars/SecureBoot-*"
+        )
+        assert secure_boot.split()[-1] == "1", f"Secure Boot is off: {secure_boot}"
+
+        print("\n=== phase 10: the spare drive alone starts the system ===")
+        vm.paths.attached_usb_disk_images = [spare_drive_image]
+        vm.reboot(luks_passphrase=LUKS_PASSPHRASE)
+        assertions.assert_booted_through_the_detached_header(INTERNAL_DISK)
+
+        print("\n=== phase 11: without a drive nothing starts ===")
+        vm.paths.attached_usb_disk_images = []
+        vm.reboot(wait_for_ssh=False)
+        assert not vm.wait_for_serial_prompt("passphrase", timeout=120), (
+            "something asked for the LUKS passphrase without the drive"
+        )
 
         assertions.raise_if_failed()
-        print("\n=== USB boot drive verification completed ===")
 
     @pytest.mark.qemu
     @pytest.mark.slow
     def test_usb_backup_writes_packages_manifest_and_config_to_backup_partition(
         self,
-        qemu_vm_with_usb_disk_and_network: QemuVm,
+        qemu_vm_with_backup_disk_and_network: QemuVm,
     ) -> None:
-        """USB backup test - runs backup_to_usb after installing with USB boot.
-
-        verifies:
-        - backup partition gets mounted and populated
-        - package catalog is generated from installed system
-        - config.yaml is exported to backup partition
-        - backup manifest is written with timestamp/hostname
-        - category directories are created for backed-up items
-        """
-        vm = qemu_vm_with_usb_disk_and_network
-
-        config_path = QEMU_DATA_DIRECTORY / "maximal_config.yaml"
-        with open(config_path) as config_file:
-            config = yaml.safe_load(config_file)
-
+        """make backup_to_usb against a partition the user prepared on a second disk."""
+        vm = qemu_vm_with_backup_disk_and_network
+        config = load_test_config("maximal_config.yaml")
+        username = config["system"]["user"]["name"]
         assertions = InstallationAssertions(vm)
 
-        print("\n=== phase 1: run installer with USB boot (pre-requisite) ===")
-        setup_vm_for_install(vm, config_path=config_path, extra_packages="cdrtools")
-        create_fake_iso(vm)
-
-        exit_code, stdout, stderr = run_make_install(
+        print("\n=== phase 1: a backup partition and some dotfiles ===")
+        setup_vm_for_install(vm, config_path=QEMU_DATA_DIRECTORY / "maximal_config.yaml")
+        run_checked(
             vm,
-            {
-                "LUKS_PASSWORD": "testpassword",
-                "USER_PASSWORD": "testpassword",
-                "NON_INTERACTIVE": "true",
-                "TARGET_DISK": "/dev/vda",
-                "SWAP_SIZE_MB": "1024",
-                "ENABLE_SNAPSHOT_BOOT": "true",
-                "GPU_VENDOR": "none",
-                "CPU_VENDOR": "amd",
-                "WIPE_METHOD": "quick",
-                "ENABLE_USB_BOOT": "true",
-                "USB_BOOT_DEVICE": "/dev/vdb",
-            },
+            [
+                "sgdisk -n1:0:0 -t1:8300 /dev/vdb",
+                "partprobe /dev/vdb && udevadm settle",
+                "mkfs.ext4 -F -L BACKUP /dev/vdb1",
+                f"mkdir -p /home/{username}",
+                f"echo '# test zshrc' > /home/{username}/.zshrc",
+                f"echo '# test gitconfig' > /home/{username}/.gitconfig",
+            ],
         )
-        assert exit_code == 0, f"Installation failed:\nstdout: {stdout}\nstderr: {stderr}"
-        print("    installation completed")
 
         print("\n=== phase 2: run backup_to_usb ===")
-
-        # create test dotfiles so there's something to back up
-        username = config["system"]["user"]["name"]
-        vm.run_ssh_command(f"mkdir -p /home/{username}", timeout=30)
-        vm.run_ssh_command(f"echo '# test zshrc' > /home/{username}/.zshrc", timeout=30)
-        vm.run_ssh_command(f"echo '# test gitconfig' > /home/{username}/.gitconfig", timeout=30)
-
-        # run backup_to_usb via make
         exit_code, stdout, stderr = vm.run_ssh_command(
-            "cd /root/arch_installer && "
-            "NON_INTERACTIVE=true "
-            "USB_DEVICE=/dev/vdb "
-            "BACKUP_CATEGORIES=dotfiles,system "
-            "make backup_to_usb",
+            "cd /root/arch_installer && NON_INTERACTIVE=true TARGET_DISK=/dev/vda "
+            "make backup_to_usb BACKUP_PARTITION=/dev/vdb1 BACKUP_CATEGORIES=dotfiles,system",
             timeout=300,
         )
         assert exit_code == 0, f"Backup failed:\nstdout: {stdout}\nstderr: {stderr}"
-        print("    backup_to_usb completed")
 
-        print("\n=== phase 3: verify backup partition contents ===")
-
-        # mount backup partition for inspection
-        vm.run_ssh_command("mkdir -p /mnt/usb-backup", timeout=30)
-        vm.run_ssh_command("mount /dev/vdb4 /mnt/usb-backup", timeout=30)
-
+        print("\n=== phase 3: verify the backup ===")
+        run_checked(vm, ["mkdir -p /mnt/usb-backup", "mount /dev/vdb1 /mnt/usb-backup"])
         assertions.assert_usb_backup_has_manifest("/mnt/usb-backup")
         assertions.assert_usb_backup_has_package_catalog("/mnt/usb-backup")
         assertions.assert_usb_backup_has_config("/mnt/usb-backup")
         assertions.assert_usb_backup_has_category_directory("dotfiles", "/mnt/usb-backup")
         assertions.assert_usb_backup_has_category_directory("system", "/mnt/usb-backup")
-
-        # verify specific backed-up items
-        exit_code, stdout, _ = vm.run_ssh_command(
-            "cat /mnt/usb-backup/dotfiles/zshrc 2>/dev/null", timeout=30
-        )
-        assert exit_code == 0 and "test zshrc" in stdout, (
-            f"zshrc not found or has wrong content in backup: {stdout}"
-        )
-        print("    zshrc backed up correctly")
-
-        # verify manifest has expected fields
-        exit_code, stdout, _ = vm.run_ssh_command("cat /mnt/usb-backup/manifest.yaml", timeout=30)
-        assert "hostname" in stdout, f"manifest missing hostname: {stdout}"
-        assert "package_count" in stdout, f"manifest missing package_count: {stdout}"
-        assert "items_backed_up" in stdout, f"manifest missing items_backed_up: {stdout}"
-        print("    manifest structure verified")
-
-        # verify package catalog is well-formed yaml
-        exit_code, stdout, _ = vm.run_ssh_command(
-            "cat /mnt/usb-backup/config/package_catalog.yaml", timeout=30
-        )
-        assert "packages:" in stdout, f"package catalog has wrong format: {stdout}"
-        assert "cataloged:" in stdout, f"package catalog missing cataloged key: {stdout}"
-        print(f"    package catalog looks valid ({stdout.count('name:')} packages)")
-
-        # list backup contents for diagnostics
-        _, listing, _ = vm.run_ssh_command(
-            "find /mnt/usb-backup -maxdepth 2 -type f | sort", timeout=30
-        )
-        print(f"    backup contents:\n{listing}")
-
+        exit_code, stdout, _ = vm.run_ssh_command("cat /mnt/usb-backup/dotfiles/zshrc")
+        assert exit_code == 0 and "test zshrc" in stdout, f"zshrc missing from the backup: {stdout}"
         vm.run_ssh_command("umount /mnt/usb-backup", timeout=30)
 
         assertions.raise_if_failed()
-        print("\n=== USB backup test completed successfully ===")
 
     @pytest.mark.qemu
     @pytest.mark.slow

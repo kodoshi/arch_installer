@@ -85,7 +85,7 @@ Full end-to-end tests in QEMU VMs with real UEFI firmware:
 - Secure Boot enrollment and verification
 - Negative Secure Boot test (unsigned binaries blocked)
 - BTRFS snapshot functionality
-- USB boot drive with signed EFI and detached LUKS headers
+- USB boot drive (plausible deniability encryption): an internal disk holding only ciphertext (no partition table, random from first to last byte), booting every kernel, a snapshot, the recovery system and the spare drive from the drive's menu, the pacman guard with the drive unplugged
 - System bootability validation
 - TUI installer driven through tmux keystrokes (only the secrets key comes from the environment; passwords are inherited from encrypted secrets and kept on their screens)
 - TUI screen-by-screen selections (`test_tui.py`): typed overrides and cursor moves relative to the inherited values
@@ -133,11 +133,12 @@ proxy.precache_packages(ESSENTIAL_PACKAGES)
 
 ### VM Fixtures
 
-Both fixtures boot the Arch ISO under UEFI in setup mode, set the live root password
+The fixtures boot the Arch ISO under UEFI in setup mode, set the live root password
 over the console and wait until SSH works:
 
 - `qemu_vm_with_network`: one virtio disk (`/dev/vda`)
-- `qemu_vm_with_usb_disk_and_network`: plus a second disk (`/dev/vdb`) standing in for a USB drive
+- `qemu_vm_with_backup_disk_and_network`: plus a second virtio disk (`/dev/vdb`) to back up to
+- `qemu_vm_with_usb_drives_and_network`: plus two USB mass storage drives on an xHCI controller (`/dev/sda`, `/dev/sdb`), removable like sticks; a test unplugs one by leaving it out of `vm.paths.attached_usb_disk_images` before the next start
 
 ## Running Tests
 

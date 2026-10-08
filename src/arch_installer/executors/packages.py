@@ -3,14 +3,14 @@
 import logging
 
 from arch_installer.config.models import CpuVendor, GpuDriver, GpuVendor
-from arch_installer.executors.base import TARGET_ROOT, Executor, file_exists, write_file
+from arch_installer.executors.base import TARGET_ROOT, StepExecutor, file_exists, write_file
 
 logger = logging.getLogger(__name__)
 
 MICROCODE_PACKAGES = {CpuVendor.AMD: "amd-ucode", CpuVendor.INTEL: "intel-ucode"}
 
 
-class PackagesStepExecutor(Executor):
+class PackagesStepExecutor(StepExecutor):
     def execute(self) -> None:
         packages = self._collect_packages()
         logger.info("Installing %s packages...", len(packages))

@@ -5,7 +5,7 @@ import logging
 from arch_installer.config.models import SnapperVolumeConfig
 from arch_installer.executors.base import (
     TARGET_ROOT,
-    Executor,
+    StepExecutor,
     directory_exists,
     file_exists,
     is_mountpoint,
@@ -214,7 +214,7 @@ echo "$latest_snapshot" > "$LAST_NOTIFIED_FILE"
 """
 
 
-class SnapperStepExecutor(Executor):
+class SnapperStepExecutor(StepExecutor):
     def execute(self) -> None:
         snapper = self._config.snapper
         logger.info("Configuring snapper (allowed groups: %s)...", ", ".join(snapper.allow_groups))
@@ -274,7 +274,7 @@ class SnapperStepExecutor(Executor):
         self._runner.run(f"chmod 750 {snapshots_directory}")
 
 
-class BootableSnapshotsStepExecutor(Executor):
+class BootableSnapshotsStepExecutor(StepExecutor):
     def execute(self) -> None:
         boot = self._config.boot
         snapshot_count = self._config.snapper.bootable_snapshot_count
@@ -309,7 +309,7 @@ class BootableSnapshotsStepExecutor(Executor):
         self._runner.run_as_chroot("systemctl enable snapper-boot-entries.path")
 
 
-class SnapshotNotificationsStepExecutor(Executor):
+class SnapshotNotificationsStepExecutor(StepExecutor):
     def execute(self) -> None:
         logger.info("Enabling desktop notifications for new snapshots...")
         notify_script = f"{TARGET_ROOT}/usr/local/bin/snapper-notify"

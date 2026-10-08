@@ -11,7 +11,7 @@ from typing import Any
 
 from arch_installer.config.environment import EnvVariable
 from arch_installer.config.models import InstallerConfig
-from arch_installer.executors.base import Executor
+from arch_installer.executors.base import StepExecutor
 from arch_installer.install_steps.questions import Question
 
 # setting path -> its current value
@@ -56,4 +56,4 @@ class StepWiring:
     config_sections: tuple[str, ...]
     settings: tuple[StepSetting, ...]
     enabled: StepCondition
-    executor: type[Executor]
+    executor: type[StepExecutor]

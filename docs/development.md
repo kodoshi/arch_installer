@@ -125,7 +125,7 @@ src/arch_installer/
 │   ├── log.py                  # stdlib logging setup (stdout progress, stderr problems)
 │   └── secrets.py              # Argon2id + AES-256-GCM encryption of stored passwords
 ├── executors/
-│   ├── base.py                 # Executor base class (StepExecutor once USB boot is done), helpers
+│   ├── base.py                 # StepExecutor base class, shared shell helpers
 │   ├── storage.py              # disk wipe, partitions, LUKS, BTRFS, swap
 │   ├── mirrors.py              # pacman mirrorlist
 │   ├── packages.py             # pacstrap, fstab, display manager
@@ -136,8 +136,9 @@ src/arch_installer/
 │   ├── snapper.py              # snapshots, bootable snapshots, notifications
 │   ├── migration.py            # migration from an existing install
 │   ├── firewall.py             # UFW setup (configured offline, enabled on boot)
-│   ├── usb_boot.py             # USB boot drive
-│   └── usb_backup.py           # USB backup partition
+│   ├── usb_boot.py             # USB boot drive: layout, safeguards, spare clone
+│   ├── recovery.py             # signed recovery UKI from the Arch ISO
+│   └── usb_backup.py           # backup to a partition of the user's choice
 └── tui/
     ├── curses_frontend.py      # CursesFrontend: renders each kind of question
     └── widgets.py              # curses widgets on one list engine, and the text field

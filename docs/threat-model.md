@@ -20,6 +20,7 @@ This document outlines the security threats this installer defends against and a
 | Evil maid (boot-level OS impersonation) | What do you want me to do about that ?? | ❌ Not in scope |
 | Firmware tampering                      | Secure Boot                             | ⚠️ Partial      |
 | USB/DMA attack                          | IOMMU forced, lockdown=integrity        | ✅ Mitigated    |
+| Disk inspection reveals encryption      | USB boot drive: detached LUKS header, no partition table, random fill, no boot code on the disk ([usb-boot.md](usb-boot.md)) | ✅ With a USB boot drive |
 
 ### 2. Network Threats
 
@@ -103,9 +104,11 @@ This document outlines the security threats this installer defends against and a
 
 ## Future Improvements
 
-**TODO**: Introduce plausible deniable encryption (PDE) with hidden volumes and a decoy OS, with plausible decoy content.
+The USB boot drive ([usb-boot.md](usb-boot.md)) provides plausible deniability for the disk itself: the LUKS header and the boot chain live on the drive, and the disk holds ciphertext in random data that nothing identifies.
 
-LUKS does not support this at all, its headers are statically structured, and detectable. This metadata is not considered part of the encrypted volume, so an adversary can read it, list keyslots, and see volume sizes.
+**TODO**: Hidden volumes and a decoy OS, with plausible decoy content.
+
+LUKS has no hidden volumes: its headers are statically structured, and detectable wherever they are stored. This metadata is not considered part of the encrypted volume, so an adversary can read it, list keyslots, and see volume sizes.
 
 VeraCrypt implements hidden volumes but is not ideal for Linux systems, since it's in userspace and not natively supported (not managed by systemd, initramfs, no bootloader integration).
 

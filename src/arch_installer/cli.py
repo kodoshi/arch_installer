@@ -1,4 +1,4 @@
-"""command-line entry points: `arch-installer`, `usb-init`, `usb-backup`, and the
+"""command-line entry points: `arch-installer`, `clone-usb-boot`, `usb-backup`, and the
 secrets helpers behind `make encrypt-secrets` / `make decrypt-secrets`.
 
 each installer entry point assembles its InstallerConfig the same way: environment
@@ -31,6 +31,7 @@ from arch_installer.config.models import (
     USER_PASSWORD_SECRET,
     EncryptedSecretsConfig,
     InstallerConfig,
+    WipeMethod,
 )
 from arch_installer.config.secrets_file import write_encrypted_secrets
 from arch_installer.config.value_precedence import (
@@ -45,7 +46,7 @@ from arch_installer.core.command import SystemCommandRunner
 from arch_installer.core.secrets import encrypt_secret
 from arch_installer.errors import ArchInstallerError, ConfigurationError
 from arch_installer.executors.usb_backup import UsbBackupStepExecutor
-from arch_installer.executors.usb_boot import UsbBootExecutor
+from arch_installer.executors.usb_boot import UsbBootDriveCloner
 from arch_installer.install_steps.registry import environment_variable_paths, variable_for_setting
 from arch_installer.installer import Installer
 from arch_installer.tui.curses_frontend import run_tui_setup
@@ -146,12 +147,35 @@ def validate_for_install(config: InstallerConfig) -> None:
         problems.append(
             f"migration needs the old LUKS password ({EnvVariable.SOURCE_LUKS_PASSWORD})"
         )
-    if config.usb_boot.enabled and not config.usb_boot.device:
-        problems.append(
-            f"USB boot needs a device ({EnvVariable.USB_BOOT_DEVICE} or usb_boot.device)"
-        )
+    if config.usb_boot.enabled:
+        problems.extend(_usb_boot_problems(config))
     if problems:
         raise ConfigurationError("Cannot start the installation:\n  - " + "\n  - ".join(problems))
+
+
+def _usb_boot_problems(config: InstallerConfig) -> list[str]:
+    usb_boot = config.usb_boot
+    problems = []
+    if not usb_boot.device:
+        problems.append(
+            f"USB boot needs a drive ({EnvVariable.USB_BOOT_DEVICE} or usb_boot.device)"
+        )
+    elif usb_boot.device == config.storage.target_disk:
+        problems.append(f"the USB boot drive and the target disk are both {usb_boot.device}")
+    if usb_boot.recovery_system and not usb_boot.iso_path:
+        problems.append(
+            f"the recovery system needs an Arch ISO ({EnvVariable.ISO_PATH} or usb_boot.iso_path)"
+        )
+    # migration always fills the disk with random data when the header is detached
+    if not config.migration.enabled and config.storage.wipe_method in (
+        WipeMethod.QUICK,
+        WipeMethod.DISCARD,
+    ):
+        problems.append(
+            "ciphertext without a header only hides on a disk filled with random data: "
+            f"{EnvVariable.WIPE_METHOD} secure, or skip for a disk filled before"
+        )
+    return problems
 
 
 def _run(entry: Callable[[Environment], None], variables: Mapping[str, str]) -> int:
@@ -175,15 +199,15 @@ def _install(environment: Environment) -> None:
     Installer(config, SystemCommandRunner()).install()
 
 
-def _usb_init(environment: Environment) -> None:
-    config = assemble_installer_config(environment, tui=None)
-    if not config.usb_boot.device:
+def _clone_usb_boot(environment: Environment) -> None:
+    source_device = environment.text(EnvVariable.USB_BOOT_DEVICE)
+    spare_device = environment.text(EnvVariable.SPARE_USB_DEVICE)
+    if not (source_device and spare_device):
         raise ConfigurationError(
-            f"No USB device ({EnvVariable.USB_BOOT_DEVICE} or usb_boot.device)"
+            f"Cloning needs the USB boot drive ({EnvVariable.USB_BOOT_DEVICE}) "
+            f"and the spare drive ({EnvVariable.SPARE_USB_DEVICE})"
         )
-    runner = SystemCommandRunner()
-    UsbBootExecutor(config, runner).execute()
-    UsbBackupStepExecutor(config, runner).execute()
+    UsbBootDriveCloner(SystemCommandRunner()).clone(source_device, spare_device)
 
 
 def _usb_backup(environment: Environment) -> None:
@@ -286,8 +310,8 @@ def main() -> int:
     return _run(_install, os.environ)
 
 
-def usb_init() -> int:
-    return _run(_usb_init, os.environ)
+def clone_usb_boot() -> int:
+    return _run(_clone_usb_boot, os.environ)
 
 
 def usb_backup() -> int:

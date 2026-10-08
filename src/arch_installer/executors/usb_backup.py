@@ -1,5 +1,7 @@
-"""backup of dotfiles, password databases, browser profiles and system config to the
-backup partition of a USB drive, plus the package list and config.yaml of this machine.
+"""backup of dotfiles, password databases, browser profiles and system config to a
+backup partition (sync.backup_partition), plus the package list and config.yaml of this
+machine. the partition is the user's own: it is mounted, never formatted, and it is not
+the USB boot drive, whose partitions hold only what booting needs.
 """
 
 import logging
@@ -10,12 +12,11 @@ import yaml
 from arch_installer.config.models import (
     BackupCategory,
     BackupItemConfig,
-    derive_partition_path,
     exportable_config,
 )
 from arch_installer.errors import ConfigurationError
 from arch_installer.executors.base import (
-    Executor,
+    StepExecutor,
     directory_exists,
     is_mountpoint,
     path_exists,
@@ -24,7 +25,6 @@ from arch_installer.executors.base import (
 
 logger = logging.getLogger(__name__)
 
-BACKUP_PARTITION_NUMBER = 4
 BACKUP_MOUNT = "/mnt/usb-backup"
 CUSTOM_ITEMS_DIRECTORY = "custom"
 
@@ -83,16 +83,15 @@ def package_catalog(package_names: list[str]) -> str:
     return header + yaml.safe_dump(catalog, default_flow_style=False, sort_keys=False)
 
 
-class UsbBackupStepExecutor(Executor):
+class UsbBackupStepExecutor(StepExecutor):
     def execute(self) -> None:
-        device = self._config.usb_boot.device
-        if not device:
+        partition = self._config.sync.backup_partition
+        if not partition:
             raise ConfigurationError(
-                "No USB device to back up to (USB_BOOT_DEVICE or usb_boot.device)"
+                "No partition to back up to (BACKUP_PARTITION or sync.backup_partition)"
             )
-        partition = derive_partition_path(device, BACKUP_PARTITION_NUMBER)
         if not path_exists(self._runner, partition):
-            raise ConfigurationError(f"USB backup partition {partition} does not exist")
+            raise ConfigurationError(f"Backup partition {partition} does not exist")
 
         categories = self._config.sync.backup_categories
         logger.info("Backing up %s to %s...", ", ".join(categories), partition)

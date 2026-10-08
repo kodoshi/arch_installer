@@ -1,4 +1,4 @@
-.PHONY: install run test test-unit test-qemu test-qemu-full lint format verify clean help diagrams encrypt-secrets decrypt-secrets deps init_to_usb backup_to_usb
+.PHONY: install run test test-unit test-qemu test-qemu-full lint format verify clean help diagrams encrypt-secrets decrypt-secrets deps clone_usb_boot backup_to_usb
 
 # secrets given as make arguments are readable by every user through `ps` and stay in the
 # shell history, so they are refused; the targets prompt for them without echo instead
@@ -23,8 +23,8 @@ help:
 	@echo "                      VERBOSE=true for verbose output, VERBOSE=quiet for minimal"
 	@echo "  make verify         - Run post-install verification"
 	@echo ""
-	@echo "  make init_to_usb    - Provision USB drive (partitions + ISO + backup)"
-	@echo "  make backup_to_usb  - Update backup on existing USB drive"
+	@echo "  make clone_usb_boot - Clone the USB boot drive onto a spare drive"
+	@echo "  make backup_to_usb  - Back up dotfiles, config and packages to a partition"
 	@echo ""
 	@echo "  make test           - Run unit tests"
 	@echo "  make test-qemu      - Run QEMU tests (set ISO=/path/to/arch.iso)"
@@ -37,10 +37,10 @@ help:
 	@echo "  make decrypt-secrets [CONFIG_PATH=config/config.yaml]"
 	@echo ""
 	@echo "USB Operations:"
-	@echo "  make init_to_usb USB_DEVICE=/dev/sdX [ISO_PATH=/path/to/arch.iso]"
-	@echo "       (partitions USB, copies ISO, backs up dotfiles/config/packages)"
-	@echo "  make backup_to_usb USB_DEVICE=/dev/sdX [BACKUP_CATEGORIES=dotfiles,keepass]"
-	@echo "       (updates backup on existing USB without reformatting)"
+	@echo "  make clone_usb_boot USB_DEVICE=/dev/sdX SPARE_DEVICE=/dev/sdY"
+	@echo "       (identical spare: boots and unlocks the system on its own)"
+	@echo "  make backup_to_usb BACKUP_PARTITION=/dev/sdY1 [BACKUP_CATEGORIES=dotfiles,keepass]"
+	@echo "       (mounts the partition and updates the backup, never formats it)"
 	@echo ""
 	@echo "Quick start (from Arch live ISO):"
 	@echo "  make deps"
@@ -103,19 +103,19 @@ $(DIAGRAMS_DIR)/%.png: $(DIAGRAMS_DIR)/%.puml
 	$(PLANTUML) -tpng -o . $<
 
 USB_DEVICE ?=
-ISO_PATH ?=
+SPARE_DEVICE ?=
+BACKUP_PARTITION ?=
 BACKUP_CATEGORIES ?=
 
-init_to_usb:
-	@test -n "$(USB_DEVICE)" || (echo "Error: USB_DEVICE required. Usage: make init_to_usb USB_DEVICE=/dev/sdX" && exit 1)
-	@echo ">>>>> Initializing USB drive $(USB_DEVICE)..."
-	@USB_BOOT_DEVICE=$(USB_DEVICE) ISO_PATH=$(ISO_PATH) BACKUP_CATEGORIES=$(BACKUP_CATEGORIES) VERBOSE=$(VERBOSE) \
-		NON_INTERACTIVE=true PYTHONPATH=src python -c 'from arch_installer.cli import usb_init; raise SystemExit(usb_init())'
+clone_usb_boot:
+	@test -n "$(USB_DEVICE)" -a -n "$(SPARE_DEVICE)" || (echo "Error: Usage: make clone_usb_boot USB_DEVICE=/dev/sdX SPARE_DEVICE=/dev/sdY" && exit 1)
+	@USB_BOOT_DEVICE=$(USB_DEVICE) SPARE_USB_DEVICE=$(SPARE_DEVICE) VERBOSE=$(VERBOSE) \
+		PYTHONPATH=src python -c 'from arch_installer.cli import clone_usb_boot; raise SystemExit(clone_usb_boot())'
 
 backup_to_usb:
-	@test -n "$(USB_DEVICE)" || (echo "Error: USB_DEVICE required. Usage: make backup_to_usb USB_DEVICE=/dev/sdX" && exit 1)
-	@echo ">>>>> Backing up to USB drive $(USB_DEVICE)..."
-	@USB_BOOT_DEVICE=$(USB_DEVICE) BACKUP_CATEGORIES=$(BACKUP_CATEGORIES) VERBOSE=$(VERBOSE) \
+	@test -n "$(BACKUP_PARTITION)" || (echo "Error: BACKUP_PARTITION required. Usage: make backup_to_usb BACKUP_PARTITION=/dev/sdY1" && exit 1)
+	@echo ">>>>> Backing up to $(BACKUP_PARTITION)..."
+	@BACKUP_PARTITION=$(BACKUP_PARTITION) BACKUP_CATEGORIES=$(BACKUP_CATEGORIES) VERBOSE=$(VERBOSE) \
 		NON_INTERACTIVE=true PYTHONPATH=src python -c 'from arch_installer.cli import usb_backup; raise SystemExit(usb_backup())'
 
 clean:

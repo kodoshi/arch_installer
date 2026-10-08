@@ -25,7 +25,9 @@ from tests.qemu.vm import (
     wait_for_vm_boot_and_network,
 )
 
-USB_DISK_SIZE_GB = 4
+BACKUP_DISK_SIZE_GB = 4
+# the drive's EFI partition (storage.efi_size_mb), LUKS header and recovery ISO fit in 8 GB
+USB_DRIVE_SIZE_GB = 8
 
 
 def pytest_addoption(parser) -> None:
@@ -107,12 +109,15 @@ def _ssh_port_for_this_worker() -> int:
     return _find_free_port(range_start, range_start + 100)
 
 
-def _build_qemu_config(request, extra_disks_gb: tuple[int, ...] = ()) -> QemuConfig:
+def _build_qemu_config(
+    request, extra_disks_gb: tuple[int, ...] = (), usb_disks_gb: tuple[int, ...] = ()
+) -> QemuConfig:
     return QemuConfig(
         memory_mb=request.config.getoption("--qemu-memory"),
         cpus=request.config.getoption("--qemu-cpus"),
         disk_size_gb=request.config.getoption("--qemu-disk-size"),
         extra_disks_gb=extra_disks_gb,
+        usb_disks_gb=usb_disks_gb,
         secure_boot=SecureBootMode.SETUP_MODE,
         headless=not request.config.getoption("--qemu-display"),
         ssh_port=_ssh_port_for_this_worker(),
@@ -211,14 +216,25 @@ def qemu_vm_with_network(
     yield from _vm_booted_with_network(request, _build_qemu_config(request), arch_iso_path)
 
 
-# second virtio disk (/dev/vdb) simulates a USB boot drive
+# second virtio disk (/dev/vdb) to back up to
 @pytest.fixture
-def qemu_vm_with_usb_disk_and_network(
+def qemu_vm_with_backup_disk_and_network(
     qemu_is_available: None,
     arch_iso_path: Path | None,
     request,
 ) -> Generator[QemuVm]:
-    config = _build_qemu_config(request, extra_disks_gb=(USB_DISK_SIZE_GB,))
+    config = _build_qemu_config(request, extra_disks_gb=(BACKUP_DISK_SIZE_GB,))
+    yield from _vm_booted_with_network(request, config, arch_iso_path)
+
+
+# two USB drives: the USB boot drive (/dev/sda) and the spare it is cloned to (/dev/sdb)
+@pytest.fixture
+def qemu_vm_with_usb_drives_and_network(
+    qemu_is_available: None,
+    arch_iso_path: Path | None,
+    request,
+) -> Generator[QemuVm]:
+    config = _build_qemu_config(request, usb_disks_gb=(USB_DRIVE_SIZE_GB, USB_DRIVE_SIZE_GB))
     yield from _vm_booted_with_network(request, config, arch_iso_path)
 
 

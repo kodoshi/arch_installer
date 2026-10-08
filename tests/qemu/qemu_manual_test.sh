@@ -16,7 +16,7 @@
 #                        (default: ~/.cache/arch-installer-qemu/manual, not /tmp: often tmpfs)
 #   --vnc-port PORT      VNC display port offset (default: 50, so VNC port 5950)
 #   --ssh-port PORT      SSH port forwarding (default: 2222)
-#   --usb-disk [SIZE]    Add a second virtio disk simulating a USB drive for PDE testing
+#   --usb-disk [SIZE]    Add a USB mass storage drive (/dev/sda) for USB boot (PDE) testing
 #                        (default size: 4GB, appears as /dev/vdb in the VM)
 #   --keep               Keep VM files after exit
 #   --headless           Run without VNC display (SSH only)
@@ -53,7 +53,7 @@ MONITOR_PORT=4444
 KEEP_FILES=false
 HEADLESS=false
 USB_DISK=false
-USB_DISK_SIZE_GB=4
+USB_DISK_SIZE_GB=8
 
 # ANSI colors
 RED='\033[0;31m'
@@ -209,7 +209,7 @@ setup_work_dir() {
     # create USB disk image if requested
     if [[ "$USB_DISK" == "true" ]]; then
         if [[ ! -f "$WORK_DIR/usb_disk.qcow2" ]]; then
-            print_info "Creating ${USB_DISK_SIZE_GB}GB USB disk image (will appear as /dev/vdb)..."
+            print_info "Creating ${USB_DISK_SIZE_GB}GB USB disk image (will appear as /dev/sda)..."
             qemu-img create -f qcow2 "$WORK_DIR/usb_disk.qcow2" "${USB_DISK_SIZE_GB}G"
         else
             print_info "Using existing USB disk image"
@@ -250,12 +250,14 @@ build_qemu_command() {
         -drive "file=$WORK_DIR/disk.qcow2,format=qcow2,if=virtio"
     )
 
-    # USB disk (second virtio disk for PDE testing)
+    # USB drive on an xHCI controller, removable like a stick (USB boot drive testing)
     if [[ "$USB_DISK" == "true" ]]; then
         cmd+=(
-            -drive "file=$WORK_DIR/usb_disk.qcow2,format=qcow2,if=virtio"
+            -device qemu-xhci,id=xhci
+            -drive "if=none,id=usb-disk,file=$WORK_DIR/usb_disk.qcow2,format=qcow2"
+            -device usb-storage,bus=xhci.0,drive=usb-disk,removable=on
         )
-        print_info "USB disk attached as /dev/vdb (${USB_DISK_SIZE_GB}GB)" >&2
+        print_info "USB drive attached as /dev/sda (${USB_DISK_SIZE_GB}GB)" >&2
     fi
 
     # CD-ROM with ISO
@@ -496,7 +498,7 @@ print_connection_info() {
     echo "        password: root"
     if [[ "$USB_DISK" == "true" ]]; then
         echo ""
-        echo "  USB:  /dev/vdb (${USB_DISK_SIZE_GB}GB) - use USB_BOOT_DEVICE=/dev/vdb"
+        echo "  USB:  /dev/sda (${USB_DISK_SIZE_GB}GB) - use USB_BOOT_DEVICE=/dev/sda ISO_PATH=/dev/sr0 WIPE_METHOD=secure"
     fi
     echo "Press Ctrl+C to stop the VM"
     echo ""

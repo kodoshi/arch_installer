@@ -352,6 +352,7 @@ notifications:
   enabled: true
 
 sync:
+  backup_partition: ''
   backup_items: []
   backup_categories:
     - dotfiles
@@ -368,12 +369,9 @@ migration:
 
 usb_boot:
   enabled: true
-  device: /dev/vdb
-  efi_size_mb: 512
-  iso_partition_size_mb: 1024
-  iso_path: /root/archlinux.iso
-  detached_luks_header: true
-  backup_partition_size_mb: 0
+  device: /dev/sda
+  recovery_system: true
+  iso_path: /dev/sr0
 
 secrets:
   luks_password_encrypted: ''

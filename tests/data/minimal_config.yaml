@@ -204,6 +204,7 @@ notifications:
   enabled: false
 
 sync:
+  backup_partition: ''
   backup_items: []
   backup_categories:
     - dotfiles
@@ -221,11 +222,8 @@ migration:
 usb_boot:
   enabled: false
   device: ''
-  efi_size_mb: 512
-  iso_partition_size_mb: 1024
+  recovery_system: true
   iso_path: ''
-  detached_luks_header: true
-  backup_partition_size_mb: 0
 
 secrets:
   luks_password_encrypted: ''

@@ -30,6 +30,9 @@ SNAPSHOTS_DIR="/.snapshots"
 EFI_DIR="/efi"
 UKI_DIR="${EFI_DIR}/EFI/Linux"
 SNAPSHOT_UKI_PREFIX="arch-snapshot"
+# left when a refresh finds no ESP (USB boot drive unplugged); plugging the drive back in
+# starts snapshot-ukis-catch-up.service, which runs the refresh while this file exists
+REFRESH_PENDING_MARKER="/var/lib/manage-snapshot-ukis/refresh-pending"
 # SNAPSHOT_COUNT and PREFERRED_KERNEL come from config.yaml, written by the installer
 SETTINGS_FILE="/etc/default/manage-snapshot-ukis"
 if [ -f "$SETTINGS_FILE" ]; then
@@ -97,6 +100,11 @@ notify_error() {
 
 notify_info() {
     notify "low" "$APP_NAME" "$*" "$NOTIFY_ICON_INFO"
+}
+
+# listing the ESP mounts it on demand (automount) when its USB boot drive is plugged in
+efi_is_reachable() {
+    ls "$EFI_DIR/EFI" >/dev/null 2>&1
 }
 
 # function to get the currently running kernel package name
@@ -466,6 +474,14 @@ generate_snapshot_uki() {
 refresh_entries() {
     local max_snapshots="${1:-$DEFAULT_SNAPSHOT_COUNT}"
     log_info "Refreshing snapshot UKIs (last $max_snapshots)..."
+
+    if ! efi_is_reachable; then
+        log_warn "$EFI_DIR is not reachable (USB boot drive unplugged?), the snapshot UKIs are built when it is back"
+        mkdir -p "$(dirname "$REFRESH_PENDING_MARKER")"
+        touch "$REFRESH_PENDING_MARKER"
+        return 0
+    fi
+    rm -f "$REFRESH_PENDING_MARKER"
 
     # create UKI directory if needed
     mkdir -p "$UKI_DIR"

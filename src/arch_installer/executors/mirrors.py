@@ -6,7 +6,7 @@ into the installed system, so both use the declared mirrors.
 
 import logging
 
-from arch_installer.executors.base import Executor, write_file
+from arch_installer.executors.base import StepExecutor, write_file
 
 logger = logging.getLogger(__name__)
 
@@ -19,7 +19,7 @@ def mirrorlist(mirrors: tuple[str, ...]) -> str:
     return "\n".join(lines) + "\n"
 
 
-class PacmanMirrorsStepExecutor(Executor):
+class PacmanMirrorsStepExecutor(StepExecutor):
     def execute(self) -> None:
         mirrors = self._config.system.mirrors
         if mirrors.use_reflector:

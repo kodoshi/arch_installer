@@ -1,13 +1,17 @@
 from dataclasses import replace
 
 from arch_installer.config.models import GpuDriver, GpuVendor
-from arch_installer.executors.base import Executor
+from arch_installer.executors.base import StepExecutor
 from arch_installer.executors.docker import DockerStepExecutor
 from arch_installer.executors.firewall import FirewallStepExecutor
 from arch_installer.executors.gpu import GpuDriverStepExecutor
 from arch_installer.executors.migration import MigrationStagingStepExecutor
+from arch_installer.executors.recovery import RecoverySystemStepExecutor
 from arch_installer.executors.storage import StorageStepExecutor
-from arch_installer.executors.usb_boot import UsbBootExecutor
+from arch_installer.executors.usb_boot import (
+    UsbBootDriveStepExecutor,
+    UsbBootSafeguardsStepExecutor,
+)
 from arch_installer.install_steps.registry import INSTALL_STEPS, InstallStep
 from arch_installer.install_steps.wiring import StepWiring, always, config_lookup, when
 from arch_installer.installer import Installer
@@ -36,7 +40,9 @@ class TestStepSelection:
         assert DockerStepExecutor not in executors
         assert FirewallStepExecutor not in executors
         assert MigrationStagingStepExecutor not in executors
-        assert UsbBootExecutor not in executors
+        assert UsbBootDriveStepExecutor not in executors
+        assert UsbBootSafeguardsStepExecutor not in executors
+        assert RecoverySystemStepExecutor not in executors
 
     def test_switching_steps_on_adds_their_executors(self):
         base = build_config()
@@ -48,7 +54,23 @@ class TestStepSelection:
         executors = enabled_executors(config)
         assert DockerStepExecutor in executors
         assert MigrationStagingStepExecutor in executors
-        assert UsbBootExecutor in executors
+        assert UsbBootDriveStepExecutor in executors
+        assert UsbBootSafeguardsStepExecutor in executors
+
+    def test_recovery_system_needs_the_usb_boot_drive_and_its_switch(self):
+        base = build_config()
+        recovery_without_drive = build_config(
+            usb_boot=replace(base.usb_boot, enabled=False, recovery_system=True)
+        )
+        drive_without_recovery = build_config(
+            usb_boot=replace(base.usb_boot, enabled=True, device="/dev/sdb", recovery_system=False)
+        )
+        drive_with_recovery = build_config(
+            usb_boot=replace(base.usb_boot, enabled=True, device="/dev/sdb", recovery_system=True)
+        )
+        assert RecoverySystemStepExecutor not in enabled_executors(recovery_without_drive)
+        assert RecoverySystemStepExecutor not in enabled_executors(drive_without_recovery)
+        assert RecoverySystemStepExecutor in enabled_executors(drive_with_recovery)
 
     def test_nvidia_driver_runs_only_for_a_proprietary_driver(self):
         nouveau = build_config(
@@ -70,7 +92,7 @@ class TestInstallerRun:
         def recording_step(label: str, enabled) -> StepWiring:
             executor = type(
                 f"Recording{label}",
-                (Executor,),
+                (StepExecutor,),
                 {"execute": lambda self, label=label: calls.append(label)},
             )
             return StepWiring(config_sections=(), settings=(), enabled=enabled, executor=executor)

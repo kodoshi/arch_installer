@@ -4,7 +4,7 @@ import logging
 
 from arch_installer.config.models import LocaleConfig
 from arch_installer.core.command import CommandRunner
-from arch_installer.executors.base import TARGET_ROOT, Executor, write_file
+from arch_installer.executors.base import TARGET_ROOT, StepExecutor, write_file
 
 logger = logging.getLogger(__name__)
 
@@ -49,7 +49,7 @@ def user_groups(runner: CommandRunner, username: str) -> set[str]:
     )
 
 
-class SystemStepExecutor(Executor):
+class SystemStepExecutor(StepExecutor):
     def execute(self) -> None:
         system = self._config.system
         logger.info(

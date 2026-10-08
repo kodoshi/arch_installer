@@ -65,3 +65,67 @@ class TestStorageExecutor:
         # secure wipe would call shred; a quick wipe never does
         fake_runner.assert_command_not_called("shred")
         fake_runner.assert_command_called("sgdisk -Z /dev/sda")
+
+
+def usb_boot_storage(**storage_overrides):
+    base = build_config()
+    return build_config(
+        storage=replace(
+            base.storage,
+            target_disk="/dev/vda",
+            wipe_method=storage_overrides.get("wipe_method", WipeMethod.SECURE),
+        ),
+        usb_boot=replace(base.usb_boot, enabled=True, device="/dev/sdb"),
+        migration=replace(base.migration, enabled=storage_overrides.get("migration", False)),
+    )
+
+
+class TestStorageWithUsbBootDrive:
+    def test_internal_disk_gets_no_partition_table(self, fake_runner):
+        StorageStepExecutor(usb_boot_storage(), storage_runner(fake_runner)).execute()
+
+        fake_runner.assert_command_not_called("sgdisk -n")
+        fake_runner.assert_command_not_called("mkfs.vfat -F32 -n EFI /dev/vda")
+
+    def test_random_fill_covers_the_erased_partition_table(self, fake_runner):
+        StorageStepExecutor(usb_boot_storage(), storage_runner(fake_runner)).execute()
+
+        commands = fake_runner.get_commands()
+        zap = commands.index("sgdisk -Z /dev/vda")
+        fill = commands.index("shred -v -n 1 /dev/vda")
+        assert zap < fill
+
+    def test_luks_header_is_formatted_onto_the_drive(self, fake_runner):
+        StorageStepExecutor(usb_boot_storage(), storage_runner(fake_runner)).execute()
+
+        luks_format = fake_runner.get_commands("luksFormat")
+        assert len(luks_format) == 1
+        assert luks_format[0].endswith("--header /dev/sdb2 --offset 0 --key-file - /dev/vda")
+        fake_runner.assert_command_called("cryptsetup isLuks /dev/sdb2")
+        fake_runner.assert_command_called(
+            "cryptsetup open --header /dev/sdb2 --key-file - /dev/vda cryptroot"
+        )
+
+    def test_an_open_volume_on_the_whole_disk_is_kept(self, fake_runner):
+        storage_runner(fake_runner)
+        fake_runner.set_response(
+            "cryptsetup status", stdout="/dev/mapper/cryptroot is active.\n  device:  /dev/vda\n"
+        )
+        config = usb_boot_storage(wipe_method=WipeMethod.SKIP)
+
+        StorageStepExecutor(config, fake_runner).execute()
+
+        fake_runner.assert_command_not_called("luksFormat")
+        fake_runner.assert_command_not_called("cryptsetup open")
+
+    def test_drive_efi_partition_becomes_the_system_esp(self, fake_runner):
+        StorageStepExecutor(usb_boot_storage(), storage_runner(fake_runner)).execute()
+
+        fake_runner.assert_command_called("mount -o umask=0077 /dev/sdb1 /mnt/efi")
+
+    def test_migration_fills_the_disk_with_random_data(self, fake_runner):
+        config = usb_boot_storage(wipe_method=WipeMethod.SKIP, migration=True)
+
+        StorageStepExecutor(config, storage_runner(fake_runner)).execute()
+
+        fake_runner.assert_command_called("shred -v -n 1 /dev/vda")

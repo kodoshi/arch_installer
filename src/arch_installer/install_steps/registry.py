@@ -29,6 +29,7 @@ from arch_installer.executors.migration import (
 )
 from arch_installer.executors.mirrors import PacmanMirrorsStepExecutor
 from arch_installer.executors.packages import PackagesStepExecutor
+from arch_installer.executors.recovery import RecoverySystemStepExecutor
 from arch_installer.executors.snapper import (
     BootableSnapshotsStepExecutor,
     SnapperStepExecutor,
@@ -36,7 +37,10 @@ from arch_installer.executors.snapper import (
 )
 from arch_installer.executors.storage import StorageStepExecutor
 from arch_installer.executors.system import SystemStepExecutor
-from arch_installer.executors.usb_boot import UsbBootExecutor
+from arch_installer.executors.usb_boot import (
+    UsbBootDriveStepExecutor,
+    UsbBootSafeguardsStepExecutor,
+)
 from arch_installer.install_steps.questions import (
     Choice,
     ChooseMany,
@@ -58,6 +62,7 @@ from arch_installer.install_steps.wiring import (
 
 class InstallStep(StrEnum):
     MIGRATION_STAGING = "Migration staging"
+    USB_BOOT_DRIVE = "USB boot drive"
     STORAGE = "Storage"
     PACMAN_MIRRORS = "Pacman mirrors"
     PACKAGES = "Packages"
@@ -67,11 +72,12 @@ class InstallStep(StrEnum):
     GPU_DRIVER = "GPU driver"
     KERNEL_IMAGES = "Kernel images"
     BOOTLOADER = "Bootloader"
-    USB_BOOT_DRIVE = "USB boot drive"
+    RECOVERY_SYSTEM = "Recovery system"
     SNAPPER = "Snapper"
     BOOTABLE_SNAPSHOTS = "Bootable snapshots"
     SNAPSHOT_NOTIFICATIONS = "Snapshot notifications"
     FIREWALL = "Firewall"
+    USB_BOOT_SAFEGUARDS = "USB boot safeguards"
 
 
 WIPE_CHOICES = (
@@ -128,6 +134,10 @@ def _uses_proprietary_nvidia_driver(value: SettingLookup) -> bool:
     return is_proprietary_nvidia(value("gpu.vendor"), value("gpu.driver"))
 
 
+def _recovery_system_wanted(value: SettingLookup) -> bool:
+    return bool(value("usb_boot.enabled") and value("usb_boot.recovery_system"))
+
+
 def _snapshot_notifications_wanted(value: SettingLookup) -> bool:
     return bool(value("notifications.enabled") and value("snapper.enabled"))
 
@@ -154,6 +164,55 @@ INSTALL_STEPS: dict[InstallStep, StepWiring] = {
         ),
         enabled=when("migration.enabled"),
         executor=MigrationStagingStepExecutor,
+    ),
+    # the drive must exist before the storage step formats the LUKS header onto it
+    InstallStep.USB_BOOT_DRIVE: StepWiring(
+        config_sections=("usb_boot",),
+        settings=(
+            StepSetting(
+                "usb_boot.enabled",
+                EnvVariable.ENABLE_USB_BOOT,
+                Switch(
+                    "USB boot drive",
+                    on_label="Yes - EFI partition and LUKS header on a USB drive",
+                    off_label="No - boot from the internal disk",
+                    description=(
+                        "The internal disk keeps only ciphertext; "
+                        "the system starts and unlocks only with the drive."
+                    ),
+                ),
+            ),
+            StepSetting(
+                "usb_boot.device",
+                EnvVariable.USB_BOOT_DEVICE,
+                ChooseOne(
+                    "USB drive",
+                    detected_disk_choices,
+                    description="Select the USB drive (ALL DATA ON IT WILL BE ERASED):",
+                    typed_prompt="Enter the USB drive path (e.g. /dev/sdb):",
+                ),
+                asked_when=when("usb_boot.enabled"),
+            ),
+            StepSetting(
+                "usb_boot.recovery_system",
+                EnvVariable.ENABLE_RECOVERY_SYSTEM,
+                Switch(
+                    "Recovery system",
+                    on_label="Yes - signed Arch live system on the drive",
+                    off_label="No",
+                    description="Boot the Arch ISO from the drive under Secure Boot to repair the system.",
+                ),
+                asked_when=when("usb_boot.enabled"),
+            ),
+            StepSetting(
+                "usb_boot.iso_path",
+                EnvVariable.ISO_PATH,
+                EnterText("Recovery ISO", "Arch ISO file, or the live medium (e.g. /dev/sr0):"),
+                asked_when=_recovery_system_wanted,
+            ),
+        ),
+        enabled=when("usb_boot.enabled"),
+        executor=UsbBootDriveStepExecutor,
     ),
     InstallStep.STORAGE: StepWiring(
         config_sections=("storage",),
@@ -282,29 +341,11 @@ INSTALL_STEPS: dict[InstallStep, StepWiring] = {
         enabled=always,
         executor=BootloaderStepExecutor,
     ),
-    InstallStep.USB_BOOT_DRIVE: StepWiring(
-        config_sections=("usb_boot",),
-        settings=(
-            StepSetting(
-                "usb_boot.enabled",
-                EnvVariable.ENABLE_USB_BOOT,
-                Switch(
-                    "USB boot drive",
-                    on_label="Yes - EFI and LUKS header on USB",
-                    off_label="No - boot from the internal disk",
-                    description="Store the EFI partition and the detached LUKS header on a USB drive.",
-                ),
-            ),
-            StepSetting(
-                "usb_boot.device",
-                EnvVariable.USB_BOOT_DEVICE,
-                EnterText("USB device", "Enter USB device path (e.g. /dev/sdb):"),
-                asked_when=when("usb_boot.enabled"),
-            ),
-            StepSetting("usb_boot.iso_path", EnvVariable.ISO_PATH, None),
-        ),
-        enabled=when("usb_boot.enabled"),
-        executor=UsbBootExecutor,
+    InstallStep.RECOVERY_SYSTEM: StepWiring(
+        config_sections=(),
+        settings=(),
+        enabled=_recovery_system_wanted,
+        executor=RecoverySystemStepExecutor,
     ),
     InstallStep.SNAPPER: StepWiring(
         config_sections=("snapper",),
@@ -344,10 +385,20 @@ INSTALL_STEPS: dict[InstallStep, StepWiring] = {
         enabled=when("firewall.enabled"),
         executor=FirewallStepExecutor,
     ),
+    # last, so the update guard never stands in the way of the installation itself
+    InstallStep.USB_BOOT_SAFEGUARDS: StepWiring(
+        config_sections=(),
+        settings=(),
+        enabled=when("usb_boot.enabled"),
+        executor=UsbBootSafeguardsStepExecutor,
+    ),
 }
 
 # make backup_to_usb is a tool of its own, not a step of an installation
-USB_BACKUP_SETTINGS = (StepSetting("sync.backup_categories", EnvVariable.BACKUP_CATEGORIES, None),)
+USB_BACKUP_SETTINGS = (
+    StepSetting("sync.backup_partition", EnvVariable.BACKUP_PARTITION, None),
+    StepSetting("sync.backup_categories", EnvVariable.BACKUP_CATEGORIES, None),
+)
 
 
 def all_settings() -> tuple[StepSetting, ...]:

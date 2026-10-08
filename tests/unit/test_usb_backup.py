@@ -5,7 +5,7 @@ import pytest
 from arch_installer.config.models import BackupCategory, UsbBootConfig
 from arch_installer.core.command import CommandExecutionResult
 from arch_installer.errors import ConfigurationError
-from arch_installer.executors.usb_backup import BACKUP_MOUNT, UsbBackupExecutor, package_catalog
+from arch_installer.executors.usb_backup import BACKUP_MOUNT, UsbBackupStepExecutor, package_catalog
 from tests.unit import FakeCommandRunner
 from tests.unit.conftest import build_config
 
@@ -42,7 +42,7 @@ class TestPackageCatalog:
 
 class TestUsbBackupExecutor:
     def test_mounts_and_unmounts_the_backup_partition(self, backup_runner):
-        UsbBackupExecutor(
+        UsbBackupStepExecutor(
             usb_config(categories=(BackupCategory.DOTFILES,)), backup_runner
         ).execute()
         backup_runner.assert_command_called("mount /dev/sdb4")
@@ -50,12 +50,12 @@ class TestUsbBackupExecutor:
 
     def test_creates_a_directory_per_selected_category(self, backup_runner):
         categories = (BackupCategory.DOTFILES, BackupCategory.SYSTEM)
-        UsbBackupExecutor(usb_config(categories=categories), backup_runner).execute()
+        UsbBackupStepExecutor(usb_config(categories=categories), backup_runner).execute()
         backup_runner.assert_command_called(f"mkdir -p {BACKUP_MOUNT}/dotfiles")
         backup_runner.assert_command_called(f"mkdir -p {BACKUP_MOUNT}/system")
 
     def test_writes_manifest_catalog_and_config(self, backup_runner):
-        UsbBackupExecutor(
+        UsbBackupStepExecutor(
             usb_config(categories=(BackupCategory.DOTFILES,)), backup_runner
         ).execute()
         backup_runner.written_content(f"{BACKUP_MOUNT}/manifest.yaml")
@@ -63,7 +63,7 @@ class TestUsbBackupExecutor:
         backup_runner.written_content(f"{BACKUP_MOUNT}/config/config.yaml")
 
     def test_exported_config_has_no_secrets(self, backup_runner):
-        UsbBackupExecutor(
+        UsbBackupStepExecutor(
             usb_config(categories=(BackupCategory.DOTFILES,)), backup_runner
         ).execute()
         exported = backup_runner.written_content(f"{BACKUP_MOUNT}/config/config.yaml")
@@ -73,9 +73,9 @@ class TestUsbBackupExecutor:
     def test_raises_when_the_partition_is_missing(self, backup_runner):
         backup_runner.set_response("test -e /dev/sdb4", exit_code=1)
         with pytest.raises(ConfigurationError, match="does not exist"):
-            UsbBackupExecutor(usb_config(), backup_runner).execute()
+            UsbBackupStepExecutor(usb_config(), backup_runner).execute()
 
     def test_raises_without_a_device(self, backup_runner):
         config = build_config(usb_boot=UsbBootConfig(enabled=True, device=""))
         with pytest.raises(ConfigurationError, match="No USB device"):
-            UsbBackupExecutor(config, backup_runner).execute()
+            UsbBackupStepExecutor(config, backup_runner).execute()

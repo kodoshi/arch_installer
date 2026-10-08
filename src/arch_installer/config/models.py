@@ -59,6 +59,11 @@ class BackupCategory(StrEnum):
 CRYPTROOT_MAPPER_NAME = "cryptroot"
 
 
+# any NVIDIA driver but nouveau is the proprietary one, which needs its own setup step
+def is_proprietary_nvidia(vendor: str, driver: str) -> bool:
+    return vendor == GpuVendor.NVIDIA and driver != GpuDriver.NOUVEAU
+
+
 def derive_partition_path(disk: str, partition_number: int) -> str:
     if not disk:
         return ""
@@ -281,7 +286,7 @@ class GpuConfig:
 
     @property
     def uses_proprietary_nvidia_driver(self) -> bool:
-        return self.vendor == GpuVendor.NVIDIA and self.driver != GpuDriver.NOUVEAU
+        return is_proprietary_nvidia(self.vendor, self.driver)
 
 
 @dataclass(frozen=True)

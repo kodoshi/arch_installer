@@ -2,12 +2,11 @@ import curses
 
 import pytest
 
-from arch_installer.tui.app import swap_size_options
+from arch_installer.setup.frontend import Inherited
 from arch_installer.tui.widgets import (
     KEY_ESCAPE,
     KEY_SPACE,
     KEY_TAB,
-    Inherited,
     MenuOption,
     TextEntry,
     Toggle,
@@ -142,30 +141,6 @@ class TestTextEntry:
         submitted = entry.press(KEY_ENTER)
 
         assert submitted == ""
-
-
-class TestSwapSizeOptions:
-    def test_inherited_size_outside_the_presets_is_offered_in_size_order(self):
-        options = swap_size_options(1024)
-
-        assert [option.value for option in options][:3] == ["1024", "4096", "8192"]
-        assert options[0].label == "1 GB"
-
-    def test_inherited_preset_is_not_duplicated(self):
-        values = [option.value for option in swap_size_options(8192)]
-
-        assert values.count("8192") == 1
-
-    def test_no_swap_is_always_the_last_option(self):
-        options = swap_size_options(0)
-
-        assert options[-1].value == "0"
-        assert [option.value for option in options].count("0") == 1
-
-    def test_size_that_is_not_whole_gigabytes_is_labelled_in_megabytes(self):
-        labels = [option.label for option in swap_size_options(1536)]
-
-        assert "1536 MB" in labels
 
 
 class TestRadioMenu:

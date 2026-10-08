@@ -83,7 +83,7 @@ def package_catalog(package_names: list[str]) -> str:
     return header + yaml.safe_dump(catalog, default_flow_style=False, sort_keys=False)
 
 
-class UsbBackupExecutor(Executor):
+class UsbBackupStepExecutor(Executor):
     def execute(self) -> None:
         device = self._config.usb_boot.device
         if not device:

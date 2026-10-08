@@ -1,7 +1,7 @@
 from dataclasses import replace
 
 from arch_installer.config.models import WipeMethod
-from arch_installer.executors.storage import StorageExecutor
+from arch_installer.executors.storage import StorageStepExecutor
 from tests.unit.conftest import build_config
 
 
@@ -19,7 +19,7 @@ def storage_runner(fake_runner):
 class TestStorageExecutor:
     def test_wipes_and_partitions_a_fresh_disk(self, fake_runner):
         config = build_config(storage=replace(build_config().storage, target_disk="/dev/sda"))
-        StorageExecutor(config, storage_runner(fake_runner)).execute()
+        StorageStepExecutor(config, storage_runner(fake_runner)).execute()
 
         fake_runner.assert_command_called("wipefs -af /dev/sda")
         fake_runner.assert_command_called("sgdisk -n1:0:+512M -t1:ef00 /dev/sda")
@@ -27,7 +27,7 @@ class TestStorageExecutor:
 
     def test_luks_format_uses_the_configured_cipher_and_hash(self, fake_runner):
         config = build_config(storage=replace(build_config().storage, target_disk="/dev/sda"))
-        StorageExecutor(config, storage_runner(fake_runner)).execute()
+        StorageStepExecutor(config, storage_runner(fake_runner)).execute()
 
         luks_format = fake_runner.get_commands("luksFormat")
         assert luks_format
@@ -37,7 +37,7 @@ class TestStorageExecutor:
 
     def test_creates_the_configured_btrfs_subvolumes(self, fake_runner):
         config = build_config(storage=replace(build_config().storage, target_disk="/dev/sda"))
-        StorageExecutor(config, storage_runner(fake_runner)).execute()
+        StorageStepExecutor(config, storage_runner(fake_runner)).execute()
 
         subvolume_commands = fake_runner.get_commands("subvolume create")
         created = " ".join(subvolume_commands)
@@ -48,7 +48,7 @@ class TestStorageExecutor:
         fake_runner.set_response("mountpoint", exit_code=0)
         config = build_config(storage=replace(build_config().storage, target_disk="/dev/sda"))
 
-        StorageExecutor(config, fake_runner).execute()
+        StorageStepExecutor(config, fake_runner).execute()
 
         fake_runner.assert_command_not_called("sgdisk")
 
@@ -60,7 +60,7 @@ class TestStorageExecutor:
             ),
             migration=replace(base.migration, enabled=True),
         )
-        StorageExecutor(config, storage_runner(fake_runner)).execute()
+        StorageStepExecutor(config, storage_runner(fake_runner)).execute()
 
         # secure wipe would call shred; a quick wipe never does
         fake_runner.assert_command_not_called("shred")

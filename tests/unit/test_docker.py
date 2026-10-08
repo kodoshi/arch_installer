@@ -1,7 +1,7 @@
 from dataclasses import replace
 
 from arch_installer.config.models import DockerConfig
-from arch_installer.executors.docker import DockerExecutor, daemon_json
+from arch_installer.executors.docker import DockerStepExecutor, daemon_json
 from tests.unit.conftest import build_config
 
 
@@ -19,14 +19,14 @@ class TestDaemonJson:
 class TestDockerExecutor:
     def test_skips_when_docker_package_is_absent(self, fake_runner):
         fake_runner.set_response("pacman -Q docker", exit_code=1)
-        DockerExecutor(build_config(docker=docker_config()), fake_runner).execute()
+        DockerStepExecutor(build_config(docker=docker_config()), fake_runner).execute()
         fake_runner.assert_command_not_called("daemon.json")
 
     def test_configures_daemon_and_enables_service(self, fake_runner):
         fake_runner.set_response("pacman -Q docker", exit_code=0)
         fake_runner.set_response("getent group", exit_code=1)
         fake_runner.set_response("id -nG", stdout="testuser")
-        DockerExecutor(build_config(docker=docker_config()), fake_runner).execute()
+        DockerStepExecutor(build_config(docker=docker_config()), fake_runner).execute()
         fake_runner.written_content("/mnt/etc/docker/daemon.json")
         fake_runner.assert_command_called("systemctl enable docker.service")
 
@@ -34,7 +34,7 @@ class TestDockerExecutor:
         fake_runner.set_response("pacman -Q docker", exit_code=0)
         fake_runner.set_response("getent group", exit_code=1)
         fake_runner.set_response("id -nG", stdout="testuser")
-        DockerExecutor(
+        DockerStepExecutor(
             build_config(docker=docker_config(access_group="docker_access")), fake_runner
         ).execute()
         assert any(

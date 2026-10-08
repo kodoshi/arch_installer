@@ -214,7 +214,7 @@ echo "$latest_snapshot" > "$LAST_NOTIFIED_FILE"
 """
 
 
-class SnapperExecutor(Executor):
+class SnapperStepExecutor(Executor):
     def execute(self) -> None:
         snapper = self._config.snapper
         logger.info("Configuring snapper (allowed groups: %s)...", ", ".join(snapper.allow_groups))
@@ -274,7 +274,7 @@ class SnapperExecutor(Executor):
         self._runner.run(f"chmod 750 {snapshots_directory}")
 
 
-class SnapshotBootExecutor(Executor):
+class BootableSnapshotsStepExecutor(Executor):
     def execute(self) -> None:
         boot = self._config.boot
         snapshot_count = self._config.snapper.bootable_snapshot_count
@@ -309,7 +309,7 @@ class SnapshotBootExecutor(Executor):
         self._runner.run_as_chroot("systemctl enable snapper-boot-entries.path")
 
 
-class SnapshotNotificationsExecutor(Executor):
+class SnapshotNotificationsStepExecutor(Executor):
     def execute(self) -> None:
         logger.info("Enabling desktop notifications for new snapshots...")
         notify_script = f"{TARGET_ROOT}/usr/local/bin/snapper-notify"

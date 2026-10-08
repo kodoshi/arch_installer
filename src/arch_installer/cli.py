@@ -21,7 +21,7 @@ from arch_installer.config.config_file import (
     has_encrypted_credentials,
     read_config_file,
 )
-from arch_installer.config.environment import Environment, EnvVariable, variable_for_setting
+from arch_installer.config.environment import Environment, EnvVariable
 from arch_installer.config.installer_config_builder import (
     MissingSettingsError,
     build_installer_config,
@@ -44,10 +44,11 @@ from arch_installer.core import log
 from arch_installer.core.command import SystemCommandRunner
 from arch_installer.core.secrets import encrypt_secret
 from arch_installer.errors import ArchInstallerError, ConfigurationError
-from arch_installer.executors.usb_backup import UsbBackupExecutor
+from arch_installer.executors.usb_backup import UsbBackupStepExecutor
 from arch_installer.executors.usb_boot import UsbBootExecutor
+from arch_installer.install_steps.registry import environment_variable_paths, variable_for_setting
 from arch_installer.installer import Installer
-from arch_installer.tui.app import run_tui_setup
+from arch_installer.tui.curses_frontend import run_tui_setup
 
 logger = logging.getLogger(log.PACKAGE_LOGGER_NAME)
 
@@ -74,7 +75,7 @@ def _config_path(environment: Environment) -> Path:
 
 
 def assemble_installer_config(environment: Environment, tui: TuiSetup | None) -> InstallerConfig:
-    environment_values = environment.setting_values()
+    environment_values = environment.setting_values(environment_variable_paths())
     config_file_values = config_file_setting_values(read_config_file(_config_path(environment)))
     config_file_values |= _unlocked_passwords(
         config_file_values, environment_values, environment, tui
@@ -182,12 +183,12 @@ def _usb_init(environment: Environment) -> None:
         )
     runner = SystemCommandRunner()
     UsbBootExecutor(config, runner).execute()
-    UsbBackupExecutor(config, runner).execute()
+    UsbBackupStepExecutor(config, runner).execute()
 
 
 def _usb_backup(environment: Environment) -> None:
     config = assemble_installer_config(environment, tui=None)
-    UsbBackupExecutor(config, SystemCommandRunner()).execute()
+    UsbBackupStepExecutor(config, SystemCommandRunner()).execute()
 
 
 # typed without echo, so the secret never reaches `ps` output or the shell history

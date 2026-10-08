@@ -18,7 +18,7 @@ INBOUND_ICMP_ACCEPT_RULES = (
 )
 
 
-class FirewallExecutor(Executor):
+class FirewallStepExecutor(Executor):
     def execute(self) -> None:
         firewall = self._config.firewall
         logger.info(

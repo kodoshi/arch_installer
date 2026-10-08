@@ -35,7 +35,7 @@ Exec=/bin/sh -c 'while read -r trg; do case $trg in linux*) exit 0; esac; done; 
 """
 
 
-class NvidiaDriverExecutor(Executor):
+class GpuDriverStepExecutor(Executor):
     def execute(self) -> None:
         logger.info("Configuring the NVIDIA %s driver...", self._config.gpu.driver or "dkms")
 

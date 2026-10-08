@@ -80,7 +80,7 @@ class TestInstallerWritesExpectations:
     def test_installation_leaves_expectations_that_only_root_may_change(
         self, fake_runner, monkeypatch
     ):
-        monkeypatch.setattr("arch_installer.installer.PIPELINE", ())
+        monkeypatch.setattr("arch_installer.installer.INSTALL_STEPS", {})
         config = build_config()
 
         Installer(config, fake_runner).install()

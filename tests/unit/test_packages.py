@@ -6,12 +6,12 @@ from arch_installer.config.models import (
     GpuDriver,
     GpuVendor,
 )
-from arch_installer.executors.packages import PackagesExecutor
+from arch_installer.executors.packages import PackagesStepExecutor
 from tests.unit.conftest import build_config
 
 
 def packages_executor(config, fake_runner):
-    return PackagesExecutor(config, fake_runner)
+    return PackagesStepExecutor(config, fake_runner)
 
 
 class TestPackageCollection:

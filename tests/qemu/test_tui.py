@@ -13,31 +13,36 @@ from tests.qemu.test_installation import QEMU_DATA_DIRECTORY, run_checked, setup
 from tests.qemu.tmux_driver import INSTALL_TMUX_IF_MISSING, TmuxScreenInput, TmuxSession
 from tests.qemu.vm import QemuVm
 
-# inherited values come from maximal_config.yaml (no encrypted passwords, so they are
-# typed); comments give cursor moves relative to the inherited option
+# screens follow the install steps; inherited values come from maximal_config.yaml (no
+# encrypted passwords, so they are typed); comments give moves from the inherited option.
+# a switch lists Off before On
 TUI_SESSION = (
     TmuxScreenInput("DALI", ("Enter",)),
-    TmuxScreenInput("Installation Type", ("Enter",)),  # fresh install (inherited)
-    TmuxScreenInput("System Configuration", ("tui-test-host", "Enter")),  # hostname
-    TmuxScreenInput("System Configuration", ("tuiuser", "Enter")),  # username
-    TmuxScreenInput("System Configuration", ("Enter",)),  # timezone: keep Europe/Paris
-    TmuxScreenInput("System Configuration", ("Enter",)),  # keymap: keep us
-    TmuxScreenInput("Password Setup", ("testluks123", "Enter")),  # LUKS password
-    TmuxScreenInput("Password Setup", ("testluks123", "Enter")),  # confirmation
-    TmuxScreenInput("Password Setup", ("testuser456", "Enter")),  # user password
-    TmuxScreenInput("Password Setup", ("testuser456", "Enter")),  # confirmation
-    TmuxScreenInput("Disk Selection", ("Enter",)),  # /dev/vda (inherited, only disk)
-    TmuxScreenInput("Disk Wipe Method", ("Down", "Enter")),  # quick -> secure
-    TmuxScreenInput("USB Boot", ("Up", "Enter")),  # yes -> no
-    TmuxScreenInput("CPU Vendor", ("Up", "Enter")),  # amd -> intel
-    TmuxScreenInput("GPU Vendor", ("Up", "Enter")),  # none -> nvidia
-    # the inherited driver is the vendor default, so nothing is preselected: nouveau -> nvidia-open
-    TmuxScreenInput("NVIDIA Driver", ("Down", "Enter")),
+    TmuxScreenInput("Migration staging: Installation type", ("Enter",)),  # fresh
+    TmuxScreenInput("Storage: Disk", ("Enter",)),  # /dev/vda (inherited, only disk)
+    TmuxScreenInput("Storage: Wipe method", ("Down", "Enter")),  # quick -> secure
+    TmuxScreenInput("Storage: Swap file", ("Enter",)),  # on
+    TmuxScreenInput("Storage: Swap size", ("Down", "Down", "Down", "Enter")),  # 1 GB -> 16 GB
+    TmuxScreenInput("Storage: Hibernation", ("Up", "Enter")),  # on -> off
+    TmuxScreenInput("Storage: LUKS password", ("testluks123", "Enter")),
+    TmuxScreenInput("Storage: LUKS password", ("testluks123", "Enter")),  # confirmation
+    TmuxScreenInput("Packages: CPU vendor", ("Up", "Enter")),  # amd -> intel
+    TmuxScreenInput("Packages: GPU vendor", ("Up", "Enter")),  # none -> nvidia
+    # the inherited driver is the vendor default, so nothing is preselected: nouveau -> open
+    TmuxScreenInput("Packages: NVIDIA driver", ("Down", "Enter")),
     # all three inherited as selected, untick hyprland
-    TmuxScreenInput("Desktop Environments", ("Down", "Down", "Space", "Enter")),
-    TmuxScreenInput("Swap Size", ("Down", "Down", "Down", "Enter")),  # 1 GB -> 16 GB
-    # hibernation off, docker off
-    TmuxScreenInput("Features", ("Space", "Down", "Down", "Down", "Space", "Tab")),
+    TmuxScreenInput("Packages: Desktops", ("Down", "Down", "Space", "Enter")),
+    TmuxScreenInput("System: Hostname", ("tui-test-host", "Enter")),
+    TmuxScreenInput("System: Username", ("tuiuser", "Enter")),
+    TmuxScreenInput("System: Timezone", ("Enter",)),  # keep Europe/Paris
+    TmuxScreenInput("System: Keymap", ("Enter",)),  # keep us
+    TmuxScreenInput("System: User password", ("testuser456", "Enter")),
+    TmuxScreenInput("System: User password", ("testuser456", "Enter")),  # confirmation
+    TmuxScreenInput("Docker: Docker", ("Up", "Enter")),  # on -> off
+    TmuxScreenInput("USB boot drive: USB boot drive", ("Up", "Enter")),  # yes -> no
+    TmuxScreenInput("Bootable snapshots: Bootable snapshots", ("Enter",)),  # on
+    TmuxScreenInput("Snapshot notifications: Desktop notifications", ("Enter",)),  # on
+    TmuxScreenInput("Firewall: Firewall (UFW)", ("Enter",)),  # on
     TmuxScreenInput("Configuration Summary", ("y",)),
 )
 

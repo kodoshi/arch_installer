@@ -13,18 +13,13 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum
 
+from arch_installer.setup.frontend import Inherited
+
 
 @dataclass(frozen=True)
 class MenuOption:
     value: str
     label: str
-
-
-# a value the setting already has, and the source it came from (shown next to it)
-@dataclass(frozen=True)
-class Inherited[ValueT]:
-    value: ValueT
-    source: str
 
 
 @dataclass(frozen=True)
@@ -375,6 +370,16 @@ def password_input_with_confirm(
         window.getch()
 
 
+SUMMARY_VALUE_WIDTH = 32
+
+
+# a long value (a disk with its model) is cut so the source column stays aligned
+def _fitted(value: str) -> str:
+    if len(value) <= SUMMARY_VALUE_WIDTH:
+        return value.ljust(SUMMARY_VALUE_WIDTH)
+    return value[: SUMMARY_VALUE_WIDTH - 1] + "…"
+
+
 # items are (label, value, source); a "Group.Field" label is listed under its group
 def _summary_rows(items: list[tuple[str, str, str]]) -> list[ListRow]:
     rows = []
@@ -382,12 +387,12 @@ def _summary_rows(items: list[tuple[str, str, str]]) -> list[ListRow]:
     for label, value, source in items:
         group, separator, field = label.partition(".")
         if not separator:
-            rows.append(ListRow(f"  {label:<27} {value:<32} {source}", RowStyle.PLAIN))
+            rows.append(ListRow(f"  {label:<27} {_fitted(value)} {source}", RowStyle.PLAIN))
             continue
         if group != current_group:
             current_group = group
             rows.append(ListRow(f"  [{group}]", RowStyle.HEADING))
-        rows.append(ListRow(f"    {field:<25} {value:<32} {source}", RowStyle.PLAIN))
+        rows.append(ListRow(f"    {field:<25} {_fitted(value)} {source}", RowStyle.PLAIN))
     return rows
 
 

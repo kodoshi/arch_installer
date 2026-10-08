@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 MICROCODE_PACKAGES = {CpuVendor.AMD: "amd-ucode", CpuVendor.INTEL: "intel-ucode"}
 
 
-class PackagesExecutor(Executor):
+class PackagesStepExecutor(Executor):
     def execute(self) -> None:
         packages = self._collect_packages()
         logger.info("Installing %s packages...", len(packages))

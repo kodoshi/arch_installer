@@ -19,7 +19,7 @@ def mirrorlist(mirrors: tuple[str, ...]) -> str:
     return "\n".join(lines) + "\n"
 
 
-class MirrorsExecutor(Executor):
+class PacmanMirrorsStepExecutor(Executor):
     def execute(self) -> None:
         mirrors = self._config.system.mirrors
         if mirrors.use_reflector:

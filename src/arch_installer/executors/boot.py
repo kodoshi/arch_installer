@@ -114,7 +114,7 @@ def uki_variants(config: InstallerConfig) -> tuple[UkiVariantConfig, ...]:
     return (PLAIN_VARIANT, *extra)
 
 
-class UkiExecutor(Executor):
+class KernelImagesStepExecutor(Executor):
     def execute(self) -> None:
         hooks = self._config.boot.hooks
         modules = (
@@ -251,7 +251,7 @@ class UkiExecutor(Executor):
                     self._runner.run_as_chroot(f"sbctl sign -s {path}", raise_on_nonzero_exit=False)
 
 
-class BootloaderExecutor(Executor):
+class BootloaderStepExecutor(Executor):
     def execute(self) -> None:
         # with a USB boot drive the ESP contents move to the USB, so an NVRAM entry for
         # the internal ESP would point at nothing

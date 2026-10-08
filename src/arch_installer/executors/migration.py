@@ -45,7 +45,7 @@ class ExistingInstallInfo:
     secure_boot_directory: str
 
 
-class MigrationStagingExecutor(Executor):
+class MigrationStagingStepExecutor(Executor):
     def execute(self) -> None:
         disk = self._config.storage.target_disk
         luks_partition = self._find_luks_partition(disk)
@@ -175,7 +175,7 @@ class MigrationStagingExecutor(Executor):
         return int(du_output[0]) if du_output and du_output[0].isdigit() else 0
 
 
-class MigrationRestoreExecutor(Executor):
+class MigrationRestoreStepExecutor(Executor):
     def execute(self) -> None:
         if not directory_exists(self._runner, STAGING_DIRECTORY):
             logger.info("No staging data to restore")

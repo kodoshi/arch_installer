@@ -12,7 +12,7 @@ sys.path.insert(0, "/root/arch_installer/src")
 
 from arch_installer.cli import assemble_installer_config
 from arch_installer.config.environment import Environment
-from arch_installer.tui.app import run_tui_setup
+from arch_installer.tui.curses_frontend import run_tui_setup
 
 
 def selections_from_config(config) -> dict:

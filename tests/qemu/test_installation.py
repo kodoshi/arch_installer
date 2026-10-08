@@ -113,27 +113,32 @@ def configure_ssh_and_reboot(vm: QemuVm, luks_passphrase: str = "testpassword") 
     vm.reboot(wait_for_ssh=True, timeout=300, luks_passphrase=luks_passphrase)
 
 
-# inherited values come from maximal_config.yaml with its passwords encrypted under
-# SECRETS_KEY, so the password screens offer to keep them and Enter keeps every
-# System Configuration value
+# screens follow the install steps; inherited values come from maximal_config.yaml with
+# its passwords encrypted under SECRETS_KEY, so the password screens offer to keep them.
+# Enter keeps every inherited value except USB boot, which this VM has no disk for
 TMUX_INSTALL_SESSION = (
     TmuxScreenInput("DALI", ("Enter",)),
-    TmuxScreenInput("Installation Type", ("Enter",)),  # fresh install (inherited)
-    TmuxScreenInput("System Configuration", ("Enter",)),  # hostname
-    TmuxScreenInput("System Configuration", ("Enter",)),  # username
-    TmuxScreenInput("System Configuration", ("Enter",)),  # timezone
-    TmuxScreenInput("System Configuration", ("Enter",)),  # keymap
+    TmuxScreenInput("Migration staging: Installation type", ("Enter",)),  # fresh
+    TmuxScreenInput("Storage: Disk", ("Enter",)),  # /dev/vda
+    TmuxScreenInput("Storage: Wipe method", ("Enter",)),  # quick
+    TmuxScreenInput("Storage: Swap file", ("Enter",)),  # on
+    TmuxScreenInput("Storage: Swap size", ("Enter",)),  # 1 GB
+    TmuxScreenInput("Storage: Hibernation", ("Enter",)),  # on
     TmuxScreenInput("Keep the inherited password", ("Enter",)),  # LUKS password
-    TmuxScreenInput("Keep the inherited password", ("Enter",)),  # user password
-    TmuxScreenInput("Disk Selection", ("Enter",)),  # /dev/vda
-    TmuxScreenInput("Disk Wipe Method", ("Enter",)),  # quick (inherited)
-    TmuxScreenInput("USB Boot", ("Up", "Enter")),  # inherited yes -> no, the VM has no USB disk
-    TmuxScreenInput("CPU", ("Enter",)),  # amd (inherited)
-    TmuxScreenInput("GPU Vendor", ("Enter",)),  # none (inherited)
+    TmuxScreenInput("Packages: CPU vendor", ("Enter",)),  # amd
+    TmuxScreenInput("Packages: GPU vendor", ("Enter",)),  # none
     # all three desktops are inherited as selected, untick every one
-    TmuxScreenInput("Desktop", ("Space", "Down", "Space", "Down", "Space", "Enter")),
-    TmuxScreenInput("Swap", ("Enter",)),  # 1 GB (inherited)
-    TmuxScreenInput("Features", ("Tab",)),  # keep the inherited toggles
+    TmuxScreenInput("Packages: Desktops", ("Space", "Down", "Space", "Down", "Space", "Enter")),
+    TmuxScreenInput("System: Hostname", ("Enter",)),
+    TmuxScreenInput("System: Username", ("Enter",)),
+    TmuxScreenInput("System: Timezone", ("Enter",)),
+    TmuxScreenInput("System: Keymap", ("Enter",)),
+    TmuxScreenInput("Keep the inherited password", ("Enter",)),  # user password
+    TmuxScreenInput("Docker: Docker", ("Enter",)),  # on
+    TmuxScreenInput("USB boot drive: USB boot drive", ("Up", "Enter")),  # yes -> no
+    TmuxScreenInput("Bootable snapshots: Bootable snapshots", ("Enter",)),
+    TmuxScreenInput("Snapshot notifications: Desktop notifications", ("Enter",)),
+    TmuxScreenInput("Firewall: Firewall (UFW)", ("Enter",)),
     TmuxScreenInput("Summary", ("y",)),
 )
 

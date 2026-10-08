@@ -22,7 +22,7 @@ def access_group_sudoers(access_group: str) -> str:
     )
 
 
-class DockerExecutor(Executor):
+class DockerStepExecutor(Executor):
     def execute(self) -> None:
         docker = self._config.docker
         if not self._runner.run_as_chroot("pacman -Q docker", raise_on_nonzero_exit=False).success:

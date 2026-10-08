@@ -7,12 +7,14 @@ arch_installer/
 ├── config/
 │   └── config.yaml              # main configuration, main source of truth
 ├── src/arch_installer/
-│   ├── cli.py                   # entry points and config resolution
-│   ├── installer.py             # orchestrator and section pipeline
+│   ├── cli.py                   # entry points and config assembly
+│   ├── installer.py             # runs the install steps
+│   ├── install_steps/           # the registry: every step, its settings, questions, executor
 │   ├── config/                  # config model, value sources and their precedence
-│   ├── core/                    # command runner, logging, secrets crypto
-│   ├── executors/               # one executor per config section
-│   └── tui/                     # curses interactive setup
+│   ├── setup/                   # the interactive setup, independent of any front-end
+│   ├── tui/                     # the curses front-end
+│   ├── executors/               # one executor per install step
+│   └── core/                    # command runner, logging, secrets crypto
 ├── scripts/                     # utilities installed on the target system
 ├── tests/
 │   ├── unit/                    # fast, isolated tests
@@ -72,17 +74,17 @@ python -m arch_installer.cli
 
 `cli.assemble_installer_config()` reads it top to bottom:
 
-1. `Environment.setting_values()`: the settings provided by environment variables that are set (`ENVIRONMENT_SETTINGS` in `config/environment.py` maps each variable to its setting path)
+1. `Environment.setting_values()`: the settings provided by environment variables that are set. Which variable provides which setting is declared with the install steps (`install_steps/registry.py`), and the text is read as the type the model declares for that setting
 2. `config_file_setting_values()`: `config.yaml` flattened into setting paths such as `storage.swap.size_mb`, with its encrypted passwords unlocked by `ARCH_INSTALLER_SECRETS_KEY` (`config/config_file.py`)
 3. `inherit_setting_values()`: for each setting, the first source in `INHERITANCE_ORDER = (ENVIRONMENT, CONFIG_FILE)` that has a value gives the inherited value, remembered with its source (`config/value_precedence.py`)
-4. interactive only: the TUI shows every inherited value with its source and returns what the user chose; `apply_tui_choices()` lets those choices win
+4. interactive only: the setup session (`setup/session.py`) walks the install steps and asks each question through a front-end, showing the inherited value with its source; `apply_tui_choices()` lets the answers win
 5. `build_installer_config()`: the values become the frozen `InstallerConfig`; every field must have a value, and all settings no source provided are reported together (`config/installer_config_builder.py`)
 
 The result is validated (`validate_for_install`) and is immutable from then on. Nothing comes from code: the model has no defaults to fall back on.
 
 #### Phase 2: Orchestration
 
-`installer.py` holds a `PIPELINE` of sections. Each `Section` has a label, an `enabled(config)` predicate and an executor class. The `Installer` runs the enabled sections in order; every executor receives the same finished `InstallerConfig`, so a choice is decided in exactly one place: the config.
+`install_steps/registry.py` holds `INSTALL_STEPS`, a dict from `InstallStep` to `StepWiring`, in the order the steps run. Each `StepWiring` lists the step's config.yaml sections, its settings (`StepSetting`: config key, environment variable, question), the condition under which it runs and its executor class. The `Installer` runs the executor of every step whose condition holds; every executor receives the same finished `InstallerConfig`, so a choice is decided in exactly one place: the config.
 
 #### Phase 3: Command Execution
 
@@ -100,22 +102,30 @@ There is a single frozen dataclass tree, `InstallerConfig`, and it has no field 
 ```
 src/arch_installer/
 ├── cli.py                      # entry points and the config assembly
-├── installer.py                # Installer orchestrator and the PIPELINE of sections
+├── installer.py                # Installer: runs the enabled install steps in order
 ├── expected_state.py           # the values verify-install checks the installed system against
 ├── errors.py                   # custom exceptions
 ├── config/
 │   ├── models.py               # InstallerConfig and its sections (frozen, no defaults), enums
 │   ├── value_precedence.py     # where each value comes from and which source wins
-│   ├── environment.py          # EnvVariable names and the variable -> setting table
+│   ├── environment.py          # EnvVariable names, reads the variables that are set
 │   ├── config_file.py          # config.yaml -> setting values, encrypted passwords unlocked
 │   ├── installer_config_builder.py  # setting values -> InstallerConfig, missing ones reported
 │   └── secrets_file.py         # writes encrypted passwords into config.yaml, keeping comments
+├── install_steps/
+│   ├── registry.py             # InstallStep, INSTALL_STEPS: settings, questions, conditions, executors
+│   ├── wiring.py               # StepWiring, StepSetting, conditions (always, when, when_equal)
+│   └── questions.py            # what can be asked (choose one or several, text, secret, switch)
+├── setup/
+│   ├── session.py              # walks the steps and asks through a front-end
+│   ├── frontend.py             # SetupFrontend: the port every front-end implements
+│   └── machine.py              # detected disks, offered as choices
 ├── core/
 │   ├── command.py              # CommandRunner interface, SystemCommandRunner
 │   ├── log.py                  # stdlib logging setup (stdout progress, stderr problems)
 │   └── secrets.py              # Argon2id + AES-256-GCM encryption of stored passwords
 ├── executors/
-│   ├── base.py                 # Executor base class, file/mount helpers
+│   ├── base.py                 # Executor base class (StepExecutor once USB boot is done), helpers
 │   ├── storage.py              # disk wipe, partitions, LUKS, BTRFS, swap
 │   ├── mirrors.py              # pacman mirrorlist
 │   ├── packages.py             # pacstrap, fstab, display manager
@@ -129,8 +139,8 @@ src/arch_installer/
 │   ├── usb_boot.py             # USB boot drive
 │   └── usb_backup.py           # USB backup partition
 └── tui/
-    ├── app.py                  # screen flow: InstallerConfig in, InstallerConfig out
-    └── widgets.py              # curses widgets (radio, checkbox, toggles, text entry)
+    ├── curses_frontend.py      # CursesFrontend: renders each kind of question
+    └── widgets.py              # curses widgets on one list engine, and the text field
 
 scripts/                        # installed to /usr/local/bin on the target
 ├── manage_snapshot_entries.sh  # manage-snapshot-ukis
@@ -152,7 +162,7 @@ docs/
 A PlantUML class diagram is available at `docs/diagrams/architecture.puml`. It shows:
 
 - The entry points, the config model and how it is resolved
-- The orchestrator, its `PIPELINE` of sections and the executors
+- The install step registry, the setup session with its front-end port, and the executors
 - The `CommandRunner` port that executors run every command through
 
 To generate the diagram:
@@ -166,15 +176,18 @@ make diagrams
 
 `docs/functional-map.md` maps every entry point, module, config section and test to what it does. `docs/code-analysis.md` is a historical analysis of the code before the restructure and no longer matches it.
 
-## Adding a New Section
+## Adding a New Step
 
-1. Add the config section to `config/models.py` (a frozen dataclass, no defaults) and a field for it on `InstallerConfig`
+1. Add its config section to `config/models.py` (a frozen dataclass, no defaults) and a field for it on `InstallerConfig`
 2. Add the section with every key to `config/config.yaml` and the configs in `tests/data/` (the builder refuses a config that lacks any of them)
-3. Create `executors/new_section.py` with an `Executor` subclass implementing `execute()`
-4. Add a `Section(label, enabled, executor)` to `PIPELINE` in `installer.py`, in the right order
-5. If an environment variable should provide a setting, add the name to `EnvVariable` and a row to `ENVIRONMENT_SETTINGS`; if the TUI should ask for it, add it to `AskedSetting` in `tui/app.py`
-6. Write tests in `tests/unit/test_new_section.py`
-7. Add assertions in the main QEMU tests in `tests/qemu/test_installation.py` (if applicable)
+3. Create `executors/new_step.py` with an executor class (`NewStepStepExecutor`) implementing `execute()`
+4. Add a member to `InstallStep` and its `StepWiring` to `INSTALL_STEPS`, at the position it should run: its config sections, its settings with their environment variable and question, the condition and the executor
+5. Write tests in `tests/unit/test_new_step.py`; `tests/unit/test_install_steps.py` checks the registry stays complete
+6. Add assertions in the main QEMU tests in `tests/qemu/test_installation.py` (if applicable)
+
+## Adding a Front-end
+
+The setup session decides what to ask, in which order and when; a front-end only renders questions. A new one (a graphical installer, for example) implements the seven methods of `SetupFrontend` in `setup/frontend.py`, then `cli.py` passes it to `run_setup()` instead of the curses one. `tests/unit/test_setup_session.py` drives the session through a scripted front-end, which is the smallest example.
 
 ## Idempotent Design
 

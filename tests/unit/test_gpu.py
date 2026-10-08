@@ -1,7 +1,7 @@
 from dataclasses import replace
 
 from arch_installer.config.models import GpuDriver, GpuVendor
-from arch_installer.executors.gpu import NvidiaDriverExecutor, initramfs_rebuild_hook
+from arch_installer.executors.gpu import GpuDriverStepExecutor, initramfs_rebuild_hook
 from tests.unit.conftest import build_config
 
 
@@ -28,7 +28,7 @@ class TestNvidiaDriverExecutor:
         config = build_config(
             gpu=replace(build_config().gpu, vendor=GpuVendor.NVIDIA, driver=GpuDriver.NVIDIA_DKMS)
         )
-        NvidiaDriverExecutor(config, fake_runner).execute()
+        GpuDriverStepExecutor(config, fake_runner).execute()
 
         assert "modeset=1" in fake_runner.written_content("/mnt/etc/modprobe.d/nvidia.conf")
 
@@ -37,7 +37,7 @@ class TestNvidiaDriverExecutor:
             gpu=replace(build_config().gpu, vendor=GpuVendor.NVIDIA, driver=GpuDriver.NVIDIA_DKMS),
             boot=replace(build_config().boot, selected_kernels=("linux-lts",)),
         )
-        NvidiaDriverExecutor(config, fake_runner).execute()
+        GpuDriverStepExecutor(config, fake_runner).execute()
 
         hook = fake_runner.written_content("/mnt/etc/pacman.d/hooks/nvidia.hook")
         assert "Target=linux-lts" in hook

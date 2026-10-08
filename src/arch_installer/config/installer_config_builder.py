@@ -24,6 +24,43 @@ CREDENTIAL_PATHS = (
 )
 
 
+TRUE_WORDS = ("true", "1", "yes")
+FALSE_WORDS = ("false", "0", "no")
+
+
+def setting_type(setting_path: str) -> Any:
+    declared: Any = InstallerConfig
+    for name in setting_path.split("."):
+        declared = get_type_hints(declared)[name]
+    return declared
+
+
+# text from outside config.yaml (environment variables), read as the type the model
+# declares for the setting, so a setting's type is written down only once
+def read_setting_text(setting_path: str, text: str, origin: str) -> Any:
+    return _from_text(setting_type(setting_path), text, f"{origin} ({setting_path})")
+
+
+def _from_text(expected_type: Any, text: str, label: str) -> Any:
+    if get_origin(expected_type) is tuple:
+        item_type = get_args(expected_type)[0]
+        items = [item.strip() for item in text.split(",") if item.strip()]
+        return tuple(_from_text(item_type, item, label) for item in items)
+    if expected_type is bool:
+        if text.lower() in TRUE_WORDS:
+            return True
+        if text.lower() in FALSE_WORDS:
+            return False
+        raise ConfigurationError(f"{label} must be true or false, got {text!r}")
+    if expected_type is int:
+        if not text.isdigit():
+            raise ConfigurationError(f"{label} must be a whole number, got {text!r}")
+        return int(text)
+    if isinstance(expected_type, type) and issubclass(expected_type, Enum):
+        return _convert(expected_type, text.lower(), label, missing=[])
+    return text
+
+
 class MissingSettingsError(ConfigurationError):
     def __init__(self, setting_paths: list[str]) -> None:
         self.setting_paths = setting_paths

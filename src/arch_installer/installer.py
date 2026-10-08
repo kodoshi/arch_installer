@@ -1,36 +1,22 @@
 """the installation orchestrator.
 
-it holds the ordered list of sections, asks the config which ones are enabled, and
-runs each enabled section's executor. it decides nothing about how a section works;
-that lives entirely in the executor.
+it runs the executor of every step in INSTALL_STEPS whose condition holds for the
+finished configuration, in registry order, then writes the files the installed system
+keeps (utility scripts, verify-install expectations, final_config.yaml). how a step
+works lives entirely in its executor.
 """
 
 import logging
-from collections.abc import Callable
-from dataclasses import dataclass
 
 import yaml
 
 from arch_installer.config.models import InstallerConfig, exportable_config
 from arch_installer.core import log
 from arch_installer.core.command import CommandRunner
-from arch_installer.executors.base import TARGET_ROOT, Executor, file_exists, write_file
-from arch_installer.executors.boot import BootloaderExecutor, UkiExecutor
-from arch_installer.executors.docker import DockerExecutor
-from arch_installer.executors.firewall import FirewallExecutor
-from arch_installer.executors.gpu import NvidiaDriverExecutor
-from arch_installer.executors.migration import MigrationRestoreExecutor, MigrationStagingExecutor
-from arch_installer.executors.mirrors import MirrorsExecutor
-from arch_installer.executors.packages import PackagesExecutor
-from arch_installer.executors.snapper import (
-    SnapperExecutor,
-    SnapshotBootExecutor,
-    SnapshotNotificationsExecutor,
-)
-from arch_installer.executors.storage import StorageExecutor
-from arch_installer.executors.system import SystemExecutor
-from arch_installer.executors.usb_boot import UsbBootExecutor
+from arch_installer.executors.base import TARGET_ROOT, file_exists, write_file
 from arch_installer.expected_state import EXPECTED_STATE_PATH, expected_state_file
+from arch_installer.install_steps.registry import INSTALL_STEPS, InstallStep
+from arch_installer.install_steps.wiring import config_lookup
 
 logger = logging.getLogger(__name__)
 
@@ -39,45 +25,6 @@ UTILITY_SCRIPTS = (
     ("scripts/manage_snapshot_entries.sh", "manage-snapshot-ukis"),
     ("scripts/dotfiles-sync.sh", "dotfiles-sync"),
 )
-
-
-@dataclass(frozen=True)
-class Section:
-    label: str
-    enabled: Callable[[InstallerConfig], bool]
-    executor: type[Executor]
-
-
-PIPELINE = (
-    Section("Migration staging", lambda config: config.migration.enabled, MigrationStagingExecutor),
-    Section("Storage", lambda config: True, StorageExecutor),
-    Section("Pacman mirrors", lambda config: _mirrors_declared(config), MirrorsExecutor),
-    Section("Packages", lambda config: True, PackagesExecutor),
-    Section("Migration restore", lambda config: config.migration.enabled, MigrationRestoreExecutor),
-    Section("System", lambda config: True, SystemExecutor),
-    Section("Docker", lambda config: config.docker.enabled, DockerExecutor),
-    Section(
-        "GPU driver", lambda config: config.gpu.uses_proprietary_nvidia_driver, NvidiaDriverExecutor
-    ),
-    Section("Kernel images", lambda config: True, UkiExecutor),
-    Section("Bootloader", lambda config: True, BootloaderExecutor),
-    Section("USB boot drive", lambda config: config.usb_boot.enabled, UsbBootExecutor),
-    Section("Snapper", lambda config: config.snapper.enabled, SnapperExecutor),
-    Section(
-        "Bootable snapshots", lambda config: config.boot.enable_snapshot_boot, SnapshotBootExecutor
-    ),
-    Section(
-        "Snapshot notifications",
-        lambda config: config.notifications.enabled and config.snapper.enabled,
-        SnapshotNotificationsExecutor,
-    ),
-    Section("Firewall", lambda config: config.firewall.enabled, FirewallExecutor),
-)
-
-
-def _mirrors_declared(config: InstallerConfig) -> bool:
-    mirrors = config.system.mirrors
-    return mirrors.use_reflector or bool(mirrors.mirrors)
 
 
 class Installer:
@@ -89,26 +36,29 @@ class Installer:
         logger.info(log.banner("Declarative ArchLinux Installer (DALI)", "Starting installation"))
         self._log_summary()
 
-        enabled = [section for section in PIPELINE if section.enabled(self._config)]
-        for index, section in enumerate(enabled, 1):
-            logger.info("[%s/%s] %s", index, len(enabled), section.label)
-            section.executor(self._config, self._runner).execute()
+        steps = self._enabled_steps()
+        for index, step in enumerate(steps, 1):
+            logger.info("[%s/%s] %s", index, len(steps), step)
+            INSTALL_STEPS[step].executor(self._config, self._runner).execute()
 
         self._install_utility_scripts()
         self._write_expected_state()
         self._write_final_config()
         logger.info(log.banner("Installation complete"))
 
+    def _enabled_steps(self) -> list[InstallStep]:
+        value = config_lookup(self._config)
+        return [step for step, wiring in INSTALL_STEPS.items() if wiring.enabled(value)]
+
     def _log_summary(self) -> None:
         system = self._config.system
-        features = [section.label for section in PIPELINE if section.enabled(self._config)]
         logger.info(
             "Host: %s, user: %s, disk: %s",
             system.hostname,
             system.user.name,
             self._config.storage.target_disk,
         )
-        logger.info("Sections: %s", ", ".join(features))
+        logger.info("Steps: %s", ", ".join(self._enabled_steps()))
 
     def _install_utility_scripts(self) -> None:
         scripts_directory = f"{TARGET_ROOT}/usr/local/bin"

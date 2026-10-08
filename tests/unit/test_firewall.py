@@ -5,13 +5,13 @@ from arch_installer.config.models import (
     FirewallConfig,
     FirewallPolicy,
 )
-from arch_installer.executors.firewall import FirewallExecutor
+from arch_installer.executors.firewall import FirewallStepExecutor
 from tests.unit.conftest import build_config
 
 
 def run_firewall(fake_runner, firewall: FirewallConfig):
     fake_runner.set_default_response(exit_code=0)
-    FirewallExecutor(build_config(firewall=firewall), fake_runner).execute()
+    FirewallStepExecutor(build_config(firewall=firewall), fake_runner).execute()
 
 
 class TestFirewallExecutor:

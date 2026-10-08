@@ -49,7 +49,7 @@ def user_groups(runner: CommandRunner, username: str) -> set[str]:
     )
 
 
-class SystemExecutor(Executor):
+class SystemStepExecutor(Executor):
     def execute(self) -> None:
         system = self._config.system
         logger.info(

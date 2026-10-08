@@ -10,14 +10,14 @@ partition "Phase 1: Configuration Assembly (cli.py)" {
     :Environment variables that are set (EnvVariable)\n\nconfig/config.yaml, encrypted passwords unlocked\nwith ARCH_INSTALLER_SECRETS_KEY;
     :inherit_setting_values(): environment > config.yaml,\neach value remembers its source;
     if (NON_INTERACTIVE?) then (no)
-        :TUI shows each inherited value and its source,\nEnter keeps it, any other choice replaces it;
+        :Setup session walks INSTALL_STEPS and asks each question\nthrough the front-end (curses TUI): inherited value and source\nshown, Enter keeps it, any other choice replaces it;
     else (yes)
     endif
     :build_installer_config(): every setting needs a value,\nmissing ones are reported together (no code defaults)\n\nvalidate_for_install(), InstallerConfig is frozen;
 }
 
 partition "Phase 2: Orchestration (installer.py)" {
-    :For each enabled Section in PIPELINE:\nMigration staging, Storage, Pacman mirrors, Packages,\nMigration restore, System, Docker, GPU driver,\nKernel images, Bootloader, USB boot drive, Snapper,\nBootable snapshots, Snapshot notifications, Firewall;
+    :For each step in INSTALL_STEPS whose condition holds:\nMigration staging, Storage, Pacman mirrors, Packages,\nMigration restore, System, Docker, GPU driver,\nKernel images, Bootloader, USB boot drive, Snapper,\nBootable snapshots, Snapshot notifications, Firewall;
     :Install utility scripts\n\nWrite /etc/dali/expected-state.env\n\nWrite final_config.yaml (no passwords);
 }
 

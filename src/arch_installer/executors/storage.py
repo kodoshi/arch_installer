@@ -16,7 +16,7 @@ from arch_installer.executors.base import (
 logger = logging.getLogger(__name__)
 
 
-class StorageExecutor(Executor):
+class StorageStepExecutor(Executor):
     def execute(self) -> None:
         storage = self._config.storage
         if is_mountpoint(self._runner, TARGET_ROOT):

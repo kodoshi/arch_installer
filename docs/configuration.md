@@ -54,23 +54,22 @@ The installer itself hands every password to `cryptsetup` and `chpasswd` on stdi
 
 ## Interactive Prompts
 
-Unless `NON_INTERACTIVE=true` is set, the installer opens a curses TUI after reading the environment and `config.yaml`. Every screen starts on the inherited value and says where it came from, for example `(inherited from environment)`: Enter keeps it, any other choice replaces it. A setting without an inherited value starts with nothing selected; a feature toggle without one shows `?` and must be set before continuing. The summary screen lists every value with its source (`environment`, `config.yaml` or `TUI`).
+Unless `NON_INTERACTIVE=true` is set, the installer opens a curses TUI after reading the environment and `config.yaml`. The questions come from the install steps, in the order the steps run, and each screen title names its step (`Storage: Disk`). Every screen starts on the inherited value and says where it came from, for example `(inherited from environment)`: Enter keeps it, any other choice replaces it. A setting without an inherited value starts with nothing selected. The summary screen lists every answer under its step, with its source (`environment`, `config.yaml` or `TUI`).
 
 ### Screen Sequence
 
-1. **Installation Type** - fresh installation or migration from an existing Arch install
-2. **System Configuration** - hostname, username, timezone, keymap. Typing replaces the inherited value, Esc restores it
-3. **Password Setup** - LUKS and user passwords. An inherited password (encrypted secrets or environment) is never shown: keep it or enter a new one
-4. **Disk Selection** - the detected disks, starting on `storage.target_disk`
-5. **Disk Wipe Method** - quick, secure (random fill), SSD discard, or skip
-6. **USB Boot Drive** - and the USB device when enabled
-7. **CPU Vendor** - for microcode
-8. **GPU Vendor** - and the NVIDIA driver when applicable
-9. **Desktop Environments** - any combination, Space toggles
-10. **Swap Size** - presets from 4 to 64 GB, the inherited size even when it is not a preset, or no swap
-11. **Features** - hibernation, firewall, bootable snapshots, Docker, desktop notifications. A toggle you flip shows its inherited state next to it
-12. **Source disk password** - migration only
-13. **Configuration Summary** - review, then `y` to install or `n` to cancel
+| Step | Screens |
+|---|---|
+| Migration staging | Installation type (fresh or migration); old disk password, only when migrating |
+| Storage | Disk (the detected disks, or typed when none is found); wipe method; swap file on or off; swap size and hibernation, only with a swap file; LUKS password |
+| Packages | CPU vendor; GPU vendor; NVIDIA driver, only for an NVIDIA card; desktops |
+| System | Hostname; username; timezone; keymap; user password |
+| Docker, USB boot drive, Bootable snapshots, Snapshot notifications, Firewall | On or off, one screen each; the USB device, only when the USB boot drive is on |
+| | Configuration summary: `y` installs, `n` cancels |
+
+- **Passwords:** an inherited password (encrypted secrets or environment) is never shown. Its screen offers to keep it or enter a new one, and a new one is typed twice.
+- **Text fields:** typing replaces the inherited value, and Esc restores it.
+- **Swap size:** the inherited size is offered even when it isn't one of the presets (4 to 64 GB).
 
 Ctrl+C quits from any screen (`q` also quits from menus); a cancelled setup exits with status 130 and installs nothing.
 
@@ -368,7 +367,7 @@ Dotfiles sync is not part of config.yaml: the installed `dotfiles-sync` tool kee
 
 ## Environment Variables
 
-The settings below can also come from environment variables. A variable that is set beats `config.yaml`; in interactive mode the TUI then shows it as the inherited value, marked `(inherited from environment)`. Each variable and the setting it provides are listed in one table, `ENVIRONMENT_SETTINGS` in `config/environment.py`. The last column names what is used when the variable is not set.
+The settings below can also come from environment variables. A variable that is set beats `config.yaml`; in interactive mode the TUI then shows it as the inherited value, marked `(inherited from environment)`. Each variable is declared next to the setting it provides, in the install step registry (`install_steps/registry.py`), and its text is read as the type the model declares for that setting. The last column names what is used when the variable is not set.
 
 ### Installer Switches
 

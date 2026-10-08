@@ -2,7 +2,7 @@ from dataclasses import replace
 
 from arch_installer.config.models import UserConfig
 from arch_installer.executors.system import (
-    SystemExecutor,
+    SystemStepExecutor,
     hosts_file,
     locale_conf,
     locales_to_generate,
@@ -34,7 +34,7 @@ class TestSystemTemplates:
 
 class TestSystemExecutor:
     def test_writes_hostname_hosts_and_locale(self, fake_runner):
-        SystemExecutor(build_config(), fake_runner).execute()
+        SystemStepExecutor(build_config(), fake_runner).execute()
 
         assert fake_runner.written_content("/mnt/etc/hostname") == "testhost\n"
         assert "testhost" in fake_runner.written_content("/mnt/etc/hosts")
@@ -47,14 +47,14 @@ class TestSystemExecutor:
                 build_config().system, user=UserConfig(name="alice", groups=("wheel", "video"))
             )
         )
-        SystemExecutor(config, fake_runner).execute()
+        SystemStepExecutor(config, fake_runner).execute()
 
         useradd = fake_runner.get_commands("useradd")
         assert useradd and "-G wheel,video" in useradd[0] and "alice" in useradd[0]
 
     def test_sets_the_user_password_over_stdin(self, fake_runner):
         fake_runner.set_response("id testuser", exit_code=1)
-        SystemExecutor(build_config(), fake_runner).execute()
+        SystemStepExecutor(build_config(), fake_runner).execute()
 
         chpasswd = [
             command for command in fake_runner.recorded_commands if "chpasswd" in command.command
@@ -63,5 +63,5 @@ class TestSystemExecutor:
 
     def test_skips_user_creation_when_it_exists(self, fake_runner):
         fake_runner.set_response("id testuser", exit_code=0)
-        SystemExecutor(build_config(), fake_runner).execute()
+        SystemStepExecutor(build_config(), fake_runner).execute()
         fake_runner.assert_command_not_called("useradd")

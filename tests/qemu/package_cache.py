@@ -1,13 +1,5 @@
-"""pacman package cache proxy for controlled QEMU testing.
-
-provides a local HTTP server that serves cached packages to the VM,
-ensuring reproducible tests with versioned packages. the proxy can
-operate in two modes:
-1. cache-through: fetches from upstream mirrors and caches locally
-2. offline: serves only pre-cached packages, fails if package missing
-
-this eliminates network dependencies during tests and ensures all
-package versions are controlled and reproducible.
+"""Local HTTP proxy that serves cached pacman packages to the test VMs, optionally
+offline.
 """
 
 import functools
@@ -22,8 +14,6 @@ from pathlib import Path
 
 @dataclass(frozen=True)
 class PackageCacheConfig:
-    """configuration for the package cache proxy."""
-
     cache_directory: Path
     host: str = "0.0.0.0"
     port: int = 8080
@@ -36,8 +26,6 @@ class PackageCacheConfig:
 
 
 class PackageCacheHandler(http.server.SimpleHTTPRequestHandler):
-    """HTTP request handler that serves cached packages."""
-
     cache_config: PackageCacheConfig
 
     def __init__(self, *args, cache_config: PackageCacheConfig, **kwargs):
@@ -78,7 +66,6 @@ class PackageCacheHandler(http.server.SimpleHTTPRequestHandler):
             self.send_error(500, f"error serving file: {error}")
 
     def fetch_and_cache(self, request_path: str, cache_path: Path) -> bool:
-        """fetch package from upstream mirror and cache locally."""
         for mirror in self.cache_config.upstream_mirrors:
             url = f"{mirror}/{request_path}"
             try:
@@ -103,7 +90,6 @@ class PackageCacheHandler(http.server.SimpleHTTPRequestHandler):
         return False
 
     def fetch_signature(self, package_path: str, mirror: str):
-        """fetch package signature file."""
         signature_path = package_path + ".sig"
         signature_cache = self.cache_config.cache_directory / signature_path
         if signature_cache.exists():
@@ -125,20 +111,12 @@ class PackageCacheHandler(http.server.SimpleHTTPRequestHandler):
 
 
 class PackageCacheProxy:
-    """manages the package cache HTTP server.
-
-    starts a local HTTP server that serves cached packages to QEMU VMs.
-    the server runs in a background thread and can be started/stopped
-    as needed for tests.
-    """
-
     def __init__(self, config: PackageCacheConfig):
         self.config = config
         self._server: socketserver.TCPServer | None = None
         self._thread: threading.Thread | None = None
 
     def setup_cache_directory(self):
-        """create cache directory structure."""
         self.config.cache_directory.mkdir(parents=True, exist_ok=True)
 
         # create repo directories
@@ -147,7 +125,6 @@ class PackageCacheProxy:
             repository_directory.mkdir(parents=True, exist_ok=True)
 
     def start(self):
-        """start the cache proxy server."""
         self.setup_cache_directory()
 
         handler = functools.partial(PackageCacheHandler, cache_config=self.config)
@@ -159,7 +136,6 @@ class PackageCacheProxy:
         self._thread.start()
 
     def stop(self):
-        """stop the cache proxy server."""
         if self._server:
             self._server.shutdown()
             self._server = None
@@ -168,15 +144,9 @@ class PackageCacheProxy:
             self._thread = None
 
     def get_mirrorlist_content(self, host_ip: str) -> str:
-        """generate mirrorlist content pointing to the cache proxy."""
         return f"Server = http://{host_ip}:{self.config.port}/$repo/os/$arch\n"
 
     def precache_packages(self, packages: list[str], architecture: str = "x86_64"):
-        """pre-download packages to ensure they are cached before tests.
-
-        packages should be in format: repo/packagename-version-arch.pkg.tar.zst
-        or just packagename (will search across repos).
-        """
         for package in packages:
             if "/" in package:
                 # full path provided
@@ -189,7 +159,6 @@ class PackageCacheProxy:
                         break
 
     def _fetch_package(self, repository: str, package: str, architecture: str) -> bool:
-        """fetch a single package to cache."""
         request_path = f"{repository}/os/{architecture}/{package}"
         cache_path = self.config.cache_directory / request_path
 
@@ -215,7 +184,6 @@ class PackageCacheProxy:
         return False
 
     def cache_stats(self) -> dict:
-        """get statistics about the cache."""
         total_size = 0
         file_count = 0
 

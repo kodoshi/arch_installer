@@ -1,9 +1,5 @@
-"""the interactive setup, the same for every front-end.
-
-it walks INSTALL_STEPS in order and asks each setting's question when its condition holds,
-offering the value inherited from the environment or config.yaml together with its
-source. the front-end only renders the questions (frontend.py); the answers then win over
-the inherited values (value_precedence.apply_tui_choices).
+"""Interactive setup: asks the install steps' questions, in step order, through a
+SetupFrontend.
 """
 
 from collections.abc import Mapping

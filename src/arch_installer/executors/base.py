@@ -1,8 +1,5 @@
-"""the executor contract and the shell helpers executors share.
-
-an executor implements one section of the installation: the commands it runs
-plus the templates for the files it writes. it receives the fully resolved
-InstallerConfig and decides nothing about *whether* it runs; the orchestrator does.
+"""StepExecutor, the base class of the install step executors, and the shell helpers
+they share.
 """
 
 from abc import ABC, abstractmethod

@@ -1,7 +1,5 @@
-"""pacman mirrors declared in system.mirrors.
-
-the live ISO's mirrorlist is replaced before pacstrap runs; pacstrap then copies it
-into the installed system, so both use the declared mirrors.
+"""pacman mirrors from system.mirrors, set on the live ISO so that pacstrap copies them
+into the installed system.
 """
 
 import logging

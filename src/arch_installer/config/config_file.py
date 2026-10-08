@@ -1,9 +1,5 @@
-"""config.yaml as a source of setting values.
-
-the file is flattened into dotted setting paths along the model's sections, so a key the
-model does not declare is refused here, with its path. lists and optional sections (btrfs
-subvolumes, snapper volumes) stay whole values. passwords are never read from the file in
-plain text: they come from its secrets section, decrypted with the secrets key.
+"""config.yaml as a source of setting values, its encrypted passwords unlocked with the
+secrets key. Keys the model does not declare are refused with their path.
 """
 
 from collections.abc import Mapping

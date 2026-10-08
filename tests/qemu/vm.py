@@ -1,8 +1,4 @@
-"""QEMU virtual machine runner for installation testing.
-
-provides QemuVm class for creating and managing QEMU VMs with UEFI
-secure boot support for testing the arch installer.
-"""
+"""QEMU virtual machines for the tests: disks, firmware, console, SSH and reboots."""
 
 import contextlib
 import platform

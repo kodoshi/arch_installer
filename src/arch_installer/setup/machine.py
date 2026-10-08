@@ -1,4 +1,4 @@
-"""facts about the machine the installer runs on, offered as choices by some questions."""
+"""Facts about the machine, such as its disks, offered as choices."""
 
 from arch_installer.core.command import CommandRunner
 from arch_installer.install_steps.questions import Disk

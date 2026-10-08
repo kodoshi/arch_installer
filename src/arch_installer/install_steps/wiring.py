@@ -1,9 +1,4 @@
-"""the types the install step registry is built from.
-
-a condition decides, once the values are known, whether a step runs or a question is
-asked. it reads values by setting path, so the same condition works on the answers the
-interactive setup has collected so far and on the finished InstallerConfig.
-"""
+"""Types the install step registry is built from: step wiring, settings and conditions."""
 
 from collections.abc import Callable
 from dataclasses import dataclass

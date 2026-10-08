@@ -1,4 +1,6 @@
-"""base system, kernels, microcode, desktops and GPU packages via pacstrap, plus fstab."""
+"""Packages via pacstrap (base system, kernels, microcode, desktops, GPU drivers) and
+fstab.
+"""
 
 import logging
 

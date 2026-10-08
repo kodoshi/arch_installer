@@ -1,8 +1,4 @@
-"""the curses front-end of the interactive setup.
-
-it renders each kind of question with the widgets in widgets.py and returns the answer.
-what to ask, in which order and when is the setup session's job (setup/session.py).
-"""
+"""Curses front-end of the interactive setup."""
 
 import curses
 from typing import Any

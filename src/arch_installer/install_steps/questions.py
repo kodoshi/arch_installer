@@ -1,9 +1,4 @@
-"""what the interactive setup can ask, independent of how a front-end shows it.
-
-a question names its kind (pick one, pick several, type text, type a secret, switch on or
-off) and the words to show. how it looks and which keys it takes is the front-end's
-business: the curses TUI today, possibly a graphical one later.
-"""
+"""Question types of the interactive setup, independent of any front-end."""
 
 from collections.abc import Callable
 from dataclasses import dataclass

@@ -1,18 +1,11 @@
-"""UEFI Secure Boot setup helpers for QEMU VM testing.
-
-provides functions to manipulate UEFI secure boot state in QEMU VMs
-including enabling/disabling setup mode and secure boot enforcement.
-"""
+"""UEFI Secure Boot state helpers for the QEMU VMs."""
 
 from tests.qemu.vm import QemuVm
 
 
 def read_efi_variable_byte(vm: QemuVm, variable_path: str) -> int:
-    """read a single-byte EFI variable value (skipping 4 attribute bytes).
-
-    returns:
-        integer value of the byte, or -1 if variable not found
-    """
+    """efivarfs prefixes each value with 4 attribute bytes, so the value is the fifth byte.
+    Returns -1 when the variable does not exist."""
     _exit_code, stdout, _ = vm.run_ssh_command(
         f"[ -f {variable_path} ] && od -An -t u1 -j4 -N1 {variable_path} || echo -1",
         timeout=10,
@@ -24,15 +17,6 @@ def read_efi_variable_byte(vm: QemuVm, variable_path: str) -> int:
 
 
 def get_verbose_secure_boot_status(vm: QemuVm) -> dict:
-    """get detailed secure boot status with verbose output.
-
-    returns a dict with:
-        - setup_mode: True if UEFI is in setup mode
-        - secure_boot_enabled: True if secure boot is enforcing
-        - pk_present: True if Platform Key is enrolled
-        - keys_created: True if sbctl keys exist
-        - all_signed: True if all boot files are signed
-    """
     result = {
         "setup_mode": False,
         "secure_boot_enabled": False,
@@ -112,16 +96,8 @@ def get_verbose_secure_boot_status(vm: QemuVm) -> dict:
 
 
 def verify_secure_boot_properly_configured(vm: QemuVm) -> bool:
-    """verify secure boot is properly configured for the installer.
-
-    returns True if:
-        - UEFI is NOT in setup mode (keys enrolled)
-        - sbctl keys exist
-        - all boot files are signed
-
-    note: SecureBoot enforcement might not work in QEMU OVMF without
-          special configuration, so we check keys enrolled instead.
-    """
+    """Checks key enrollment and signing, not the SecureBoot variable: OVMF can report
+    enforcement as off even with the keys enrolled."""
     status = get_verbose_secure_boot_status(vm)
 
     # critical checks:
@@ -148,10 +124,6 @@ def verify_secure_boot_properly_configured(vm: QemuVm) -> bool:
 
 
 def verify_setup_mode_before_install(vm: QemuVm) -> bool:
-    """verify UEFI is in setup mode before installation.
-
-    returns True if setup mode is enabled (ready for key enrollment).
-    """
     print("\n    verifying UEFI setup mode for installation...")
 
     setup_mode_variable = "/sys/firmware/efi/efivars/SetupMode-8be4df61-93ca-11d2-aa0d-00e098032b8c"
@@ -167,12 +139,6 @@ def verify_setup_mode_before_install(vm: QemuVm) -> bool:
 
 
 def print_secure_boot_summary(vm: QemuVm, phase: str = "") -> None:
-    """print a formatted summary of secure boot status.
-
-    args:
-        vm: the QEMU VM instance
-        phase: optional phase description (e.g., "pre-install", "post-reboot")
-    """
     header = f"SECURE BOOT STATUS{' - ' + phase if phase else ''}"
     print(f"\n    {'=' * 50}")
     print(f"    {header}")

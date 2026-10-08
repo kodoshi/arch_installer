@@ -1,11 +1,7 @@
-"""migration from an existing encrypted btrfs Arch install, around the disk wipe.
+"""Migration from an existing encrypted btrfs Arch install.
 
-1. staging (before the storage executor): unlock and mount the old system once,
-   copy home, sbctl keys and extra paths to a staging directory, unmount
-2. the storage executor wipes the disk and creates the new layout and LUKS volume
-3. restoring (after the packages executor): copy the staged data into the new system
-
-any staging failure raises before the wipe can destroy data that was not copied.
+Staging runs before the storage step wipes the disk, restoring after the packages step.
+A staging failure stops the installation before the wipe.
 """
 
 import logging

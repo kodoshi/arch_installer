@@ -1,9 +1,4 @@
-"""the port every interactive front-end implements.
-
-the setup session decides what to ask, in which order and when (session.py); a front-end
-only shows one question of a given kind and returns the answer. the curses TUI is one
-front-end; a graphical one would implement these methods and nothing else.
-"""
+"""Port that interactive front-ends implement, one method per question kind."""
 
 from dataclasses import dataclass
 from typing import Any, Protocol

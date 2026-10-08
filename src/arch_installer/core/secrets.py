@@ -1,13 +1,10 @@
-"""AES-256-GCM encryption of the passwords that config.yaml may store in its secrets section.
+"""AES-256-GCM encryption of the passwords stored in config.yaml, with keys derived by
+Argon2id.
 
-the AES key is derived from the secrets key with Argon2id and a random salt per secret, so
-a leaked config.yaml can only be attacked at Argon2id speed, one secret at a time. every
-blob names the setting it belongs to (AES-GCM associated data), so two blobs cannot be
-swapped. a blob describes how it was made, so the cost can be raised later:
+Each secret has its own salt and names its setting as associated data, so two secrets
+cannot be swapped. Format, with salt and nonce + ciphertext in base64:
 
     dali-v2$argon2id$m=<memory KiB>,t=<iterations>,p=<lanes>$<salt>$<nonce + ciphertext>
-
-with the salt and the nonce + ciphertext in base64.
 """
 
 import base64

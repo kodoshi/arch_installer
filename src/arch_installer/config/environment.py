@@ -1,10 +1,4 @@
-"""environment variables: their names, and reading the ones that are set.
-
-which variable provides which setting is declared with the install steps (see
-install_steps/registry.py); a set variable's text is read as the type the model
-declares for that setting. how a value ranks against config.yaml and the TUI is
-decided in value_precedence.py.
-"""
+"""Environment variable names, and reading the ones that are set."""
 
 from collections.abc import Mapping
 from enum import StrEnum

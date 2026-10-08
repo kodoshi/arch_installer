@@ -1,8 +1,4 @@
-"""proprietary NVIDIA driver setup. AMD, Intel and nouveau need nothing beyond their packages.
-
-the NVIDIA kernel modules for the initramfs are written by the UKI executor,
-which owns mkinitcpio.conf.
-"""
+"""Proprietary NVIDIA driver setup. The other drivers need only their packages."""
 
 import logging
 

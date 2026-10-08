@@ -1,8 +1,4 @@
-"""console logging for the installer, built on the standard logging module.
-
-modules log through `logging.getLogger(__name__)`; this module only wires the
-handlers once, at startup. progress goes to stdout, warnings and errors to stderr.
-"""
+"""Console logging: progress on stdout, warnings and errors on stderr."""
 
 import logging
 import sys

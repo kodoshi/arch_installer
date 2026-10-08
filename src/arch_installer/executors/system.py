@@ -1,4 +1,4 @@
-"""hostname, timezone, locales, console keymap and the user account."""
+"""Hostname, timezone, locales, console keymap and the user account."""
 
 import logging
 

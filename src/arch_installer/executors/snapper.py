@@ -1,4 +1,4 @@
-"""BTRFS snapshots with snapper, bootable snapshot UKIs, and snapshot notifications."""
+"""Snapper configuration, bootable snapshot UKIs and snapshot notifications."""
 
 import logging
 

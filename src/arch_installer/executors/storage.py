@@ -1,8 +1,7 @@
-"""disk partitioning, LUKS encryption, BTRFS subvolumes, EFI partition and swapfile.
+"""Disk wipe, partitions, LUKS, BTRFS subvolumes, EFI partition and swapfile.
 
-with a USB boot drive the internal disk gets no partition table at all: the ciphertext
-fills it from the first byte to the last, the LUKS header is formatted onto the drive's
-header partition, and the drive's EFI partition is mounted as the system's ESP.
+With a USB boot drive the whole disk is the encrypted device, without a partition
+table, and the LUKS header goes on the drive.
 """
 
 import logging

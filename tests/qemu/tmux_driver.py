@@ -1,7 +1,7 @@
-"""drive a curses program running in a tmux session on the VM.
+"""Drives a curses program in a tmux session on the VM.
 
-tmux renders the program into a real terminal, so a screen is matched against the
-pane as it is displayed rather than against the stream of partial curses redraws.
+Screens are matched against the rendered pane, not against the stream of partial
+curses redraws.
 """
 
 import shlex

@@ -1,9 +1,4 @@
-"""the installer's single configuration model.
-
-no setting has a default in code: every value comes from an environment variable,
-config.yaml or the TUI (see value_precedence.py), and a value no source provides is
-reported as missing instead of being made up.
-"""
+"""Frozen configuration model of the installer. No field has a default."""
 
 from dataclasses import asdict, dataclass
 from enum import Enum, StrEnum

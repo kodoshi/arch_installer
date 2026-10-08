@@ -1,10 +1,5 @@
-"""everything the installer can do, in the order it does it.
-
-each step lists the settings that belong to it: their config.yaml key, the environment
-variable that can provide them and the question the interactive setup asks. a setting is
-listed once, with its step; any step may still read any setting from the finished
-InstallerConfig. the order of INSTALL_STEPS is the order the steps run and the order the
-interactive setup asks its questions in.
+"""Every install step with its settings, questions, condition and executor, in run order.
+The interactive setup asks its questions in the same order.
 """
 
 from enum import StrEnum

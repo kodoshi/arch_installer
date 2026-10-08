@@ -1,9 +1,5 @@
-"""command-line entry points: `arch-installer`, `clone-usb-boot`, `usb-backup`, and the
-secrets helpers behind `make encrypt-secrets` / `make decrypt-secrets`.
-
-each installer entry point assembles its InstallerConfig the same way: environment
-variables over config.yaml (see value_precedence.py), then, when interactive, the TUI,
-which shows each inherited value and may replace it. nothing comes from code defaults.
+"""Command-line entry points: arch-installer, clone-usb-boot, usb-backup and the
+secrets commands behind make encrypt-secrets and make decrypt-secrets.
 """
 
 import getpass

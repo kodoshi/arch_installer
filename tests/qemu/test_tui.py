@@ -1,8 +1,4 @@
-"""QEMU e2e tests for the TUI interactive installer.
-
-runs the curses TUI in a tmux session on the VM, sends keystrokes to navigate menus
-and make selections, then asserts that the collected selections match what was driven.
-"""
+"""Drives the curses TUI over tmux on a VM and checks the selections it produced."""
 
 import json
 from pathlib import Path

@@ -1,8 +1,4 @@
-"""Test fixtures and fakes for unit testing.
-
-Provides fake implementations of CommandRunner for testing
-without executing actual system commands.
-"""
+"""FakeCommandRunner, which records commands instead of running them."""
 
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
@@ -13,8 +9,6 @@ from arch_installer.errors import CommandError
 
 @dataclass
 class RecordedCommand:
-    """A command that was recorded by the fake runner."""
-
     command: str
     raise_on_nonzero_exit: bool
     capture_output: bool
@@ -27,11 +21,9 @@ class RecordedCommand:
 
 @dataclass
 class FakeCommandRunner(CommandRunner):
-    """Fake command runner for testing.
-
-    Records all commands and returns configurable responses.
-    Allows setting up expectations for specific commands.
-    """
+    """Patterns match as substrings of the command. Handlers are tried first, then
+    responses in the order they were set; the first match wins, and a command that
+    matches nothing gets the default response."""
 
     # Recorded commands for assertion
     recorded_commands: list[RecordedCommand] = field(default_factory=list)
@@ -52,7 +44,6 @@ class FakeCommandRunner(CommandRunner):
         stdout: str = "",
         stderr: str = "",
     ) -> None:
-        """Set response for commands matching pattern."""
         self._responses[pattern] = (exit_code, stdout, stderr)
 
     def set_default_response(
@@ -61,7 +52,6 @@ class FakeCommandRunner(CommandRunner):
         stdout: str = "",
         stderr: str = "",
     ) -> None:
-        """Set default response for unmatched commands."""
         self._default_response = (exit_code, stdout, stderr)
 
     def set_handler(
@@ -69,7 +59,6 @@ class FakeCommandRunner(CommandRunner):
         pattern: str,
         handler: Callable[[str], CommandExecutionResult],
     ) -> None:
-        """Set custom handler for commands matching pattern."""
         self._handlers[pattern] = handler
 
     def run(
@@ -82,7 +71,6 @@ class FakeCommandRunner(CommandRunner):
         working_directory: str | None = None,
         input_data: str | None = None,
     ) -> CommandExecutionResult:
-        """Execute (fake) a command and return configured result."""
         command_text = command if isinstance(command, str) else " ".join(command)
 
         # Record the command
@@ -136,7 +124,6 @@ class FakeCommandRunner(CommandRunner):
         env_variables: Mapping[str, str] | None = None,
         input_data: str | None = None,
     ) -> CommandExecutionResult:
-        """Execute (fake) a chroot command."""
         command_text = command if isinstance(command, str) else " ".join(command)
         full_command = f"arch-chroot {chroot_path} {command_text}"
 
@@ -184,7 +171,6 @@ class FakeCommandRunner(CommandRunner):
         return result
 
     def get_commands(self, pattern: str | None = None) -> list[str]:
-        """Get recorded commands, optionally filtered by pattern."""
         commands = [r.command for r in self.recorded_commands]
         if pattern:
             commands = [c for c in commands if pattern in c]
@@ -199,7 +185,6 @@ class FakeCommandRunner(CommandRunner):
         return writes[-1].input_data or ""
 
     def assert_command_called(self, pattern: str) -> None:
-        """Assert that a command matching pattern was called."""
         if not self.get_commands(pattern):
             raise AssertionError(
                 f"Expected command matching '{pattern}' to be called.\n"
@@ -207,7 +192,6 @@ class FakeCommandRunner(CommandRunner):
             )
 
     def assert_command_not_called(self, pattern: str) -> None:
-        """Assert that no command matching pattern was called."""
         if self.get_commands(pattern):
             raise AssertionError(
                 f"Expected command matching '{pattern}' NOT to be called.\n"
@@ -215,5 +199,4 @@ class FakeCommandRunner(CommandRunner):
             )
 
     def clear(self) -> None:
-        """Clear recorded commands."""
         self.recorded_commands.clear()

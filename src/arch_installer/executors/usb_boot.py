@@ -1,16 +1,5 @@
-"""the USB boot drive: the only place the installed system can be started from.
-
-drive layout:
-  1. EFI system partition: systemd-boot, every kernel and snapshot UKI, the recovery UKI
-  2. LUKS header partition: the header of the encrypted internal disk
-  3. recovery partition (optional): the Arch live system (the ISO's arch/ tree) that the
-     recovery UKI boots
-
-the internal disk keeps only ciphertext, without even a partition table. the drive is
-prepared before the storage step, which formats the LUKS header onto partition 2 and
-mounts partition 1 as /efi. once the system is installed, the safeguards keep it working
-while the drive is unplugged: /efi is mounted on demand, pacman refuses to rewrite boot
-files without the drive, and snapshot UKIs skipped meanwhile are built when it comes back.
+"""USB boot drive: preparing the drive, the safeguards on the installed system, and
+cloning a spare.
 """
 
 import logging

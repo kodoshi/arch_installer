@@ -1,8 +1,6 @@
-"""stores encrypted passwords in the secrets section of a config.yaml.
+"""Writes encrypted passwords into the secrets section of a config.yaml.
 
-the file is edited line by line rather than re-dumped, so its comments and layout
-survive; the edited text is parsed before it is written, to prove the values land
-where the loader looks for them.
+The file is edited line by line, so its comments and layout survive.
 """
 
 import re

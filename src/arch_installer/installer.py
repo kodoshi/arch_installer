@@ -1,9 +1,5 @@
-"""the installation orchestrator.
-
-it runs the executor of every step in INSTALL_STEPS whose condition holds for the
-finished configuration, in registry order, then writes the files the installed system
-keeps (utility scripts, verify-install expectations, final_config.yaml). how a step
-works lives entirely in its executor.
+"""Runs the enabled install steps in order, then writes the files the installed system
+keeps.
 """
 
 import logging

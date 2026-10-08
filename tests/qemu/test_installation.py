@@ -41,11 +41,8 @@ def setup_vm_for_install(
     extra_packages: str = "",
     expand_root: bool = True,
 ) -> None:
-    """initialize pacman keyring, install base packages, and copy installer to VM.
-
-    Note: expand_root=True by default to ensure cowspace is large enough for package
-    installation. The live ISO has limited overlay space that can fill up quickly.
-    """
+    """The live ISO's overlay (cowspace) is too small for the package installs, so
+    expand_root enlarges it first."""
     if expand_root:
         vm.run_ssh_command("mount -o remount,size=2G /run/archiso/cowspace", timeout=30)
     vm.run_ssh_command("pacman-key --init", timeout=120)
@@ -114,7 +111,6 @@ def wait_until(vm: QemuVm, command: str, timeout: int) -> bool:
 
 
 def configure_ssh_and_reboot(vm: QemuVm, luks_passphrase: str = "testpassword") -> None:
-    """configure SSH for installed system and reboot."""
     prepare_ssh_access_to_installed_system(vm)
     vm.run_ssh_command("umount -R /mnt 2>/dev/null || true", timeout=60)
     vm.reboot(wait_for_ssh=True, timeout=300, luks_passphrase=luks_passphrase)
@@ -170,17 +166,6 @@ class TestQemuFullInstallation:
         self,
         qemu_vm_with_network: QemuVm,
     ) -> None:
-        """comprehensive end-to-end installation with maximal config.
-
-        tests all enabled sections:
-        - system: hostname, timezone, locale, user, mirrors
-        - storage: luks, efi partition, btrfs subvolumes, swap with hibernation
-        - boot: all kernels, UKI variants, cmdline params, mkinitcpio hooks
-        - snapper: root and home configs, bootable snapshots
-        - firewall: ufw enabled with deny policy
-        - docker: enabled with access group
-        - secure boot: keys enrolled and files signed
-        """
         vm = qemu_vm_with_network
         config = load_test_config("maximal_config.yaml")
         expected_subvolumes = [
@@ -401,7 +386,6 @@ class TestQemuFullInstallation:
         print("\n=== maximal config test completed successfully ===")
 
     def _test_dotfiles_sync(self, vm: QemuVm, username: str) -> None:
-        """test dotfiles-sync push/pull functionality with a local git server."""
         print("    setting up local git server for dotfiles-sync test...")
 
         # install git (should already be there but ensure it)
@@ -715,7 +699,6 @@ files:
         system_config: dict,
         installer_config: dict,
     ) -> None:
-        """verify installation works with environment variables overriding config values."""
         vm = qemu_vm_with_network
         assertions = InstallationAssertions(vm)
 
@@ -761,14 +744,6 @@ files:
         self,
         qemu_vm_with_usb_drives_and_network: QemuVm,
     ) -> None:
-        """plausible deniability encryption with a USB boot drive, from install to recovery.
-
-        the internal disk holds ciphertext in random data without a partition table, the drive holds
-        the EFI partition, the LUKS header and the recovery ISO. booting covers every entry
-        the drive's systemd-boot menu offers: the kernels, a snapshot, the recovery system,
-        the spare drive alone, and no drive at all. kernel images follow package updates
-        on the drive, and pacman refuses them while the drive is unplugged.
-        """
         vm = qemu_vm_with_usb_drives_and_network
         config = load_test_config("maximal_config.yaml")
         assertions = InstallationAssertions(vm)
@@ -918,7 +893,6 @@ files:
         self,
         qemu_vm_with_backup_disk_and_network: QemuVm,
     ) -> None:
-        """make backup_to_usb against a partition the user prepared on a second disk."""
         vm = qemu_vm_with_backup_disk_and_network
         config = load_test_config("maximal_config.yaml")
         username = config["system"]["user"]["name"]
@@ -1039,14 +1013,8 @@ files:
         self,
         qemu_vm_with_network: QemuVm,
     ) -> None:
-        """verify secure boot blocks unsigned EFI binaries after key enrollment.
-
-        installs a system with secure boot enabled, then:
-        1. creates an unsigned EFI binary on the ESP
-        2. verifies sbctl reports it as not signed
-        3. removes the signing from a real UKI and confirms sbctl rejects it
-        4. verifies overall sbctl verify now fails
-        """
+        """Checks the signatures with sbctl verify on the installed system; it does not boot
+        the unsigned binary."""
         vm = qemu_vm_with_network
 
         print("\n=== phase 1: install system with secure boot ===")

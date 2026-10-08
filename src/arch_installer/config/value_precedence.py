@@ -1,11 +1,7 @@
-"""where each setting's value comes from, and which source wins.
+"""Where each setting's value comes from, and which source wins.
 
 non-interactive:  environment variables > config.yaml
-interactive:      environment variables > config.yaml, then the TUI shows that inherited
-                  value and the user may replace it
-
-no value ever comes from code: a setting that no source provides stays missing and is
-reported by the config builder.
+interactive:      environment variables > config.yaml, then the TUI may replace the value
 """
 
 from collections.abc import Mapping

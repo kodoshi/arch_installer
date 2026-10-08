@@ -1,5 +1,3 @@
-"""custom exceptions for the arch installer."""
-
 from dataclasses import dataclass
 
 

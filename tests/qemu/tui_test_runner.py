@@ -1,8 +1,5 @@
-"""standalone TUI runner for the QEMU e2e test.
-
-assembles the configuration exactly like the installer does (environment over config.yaml,
-then the TUI) and dumps it to JSON so the test can assert that the driven keystrokes
-produced the expected selections.
+"""Runs the TUI setup on the VM and writes the resulting configuration as JSON for
+test_tui.py.
 """
 
 import json

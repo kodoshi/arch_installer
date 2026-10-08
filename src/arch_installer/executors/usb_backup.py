@@ -1,7 +1,5 @@
-"""backup of dotfiles, password databases, browser profiles and system config to a
-backup partition (sync.backup_partition), plus the package list and config.yaml of this
-machine. the partition is the user's own: it is mounted, never formatted, and it is not
-the USB boot drive, whose partitions hold only what booting needs.
+"""Backup of dotfiles, password databases, browser profiles, system config and the
+package list to a partition the user provides.
 """
 
 import logging

@@ -1,8 +1,4 @@
-"""SSH configuration commands for QEMU test VMs.
-
-these commands are run on the live ISO environment to configure SSH access
-in the installed system before rebooting into it.
-"""
+"""Commands that open SSH access to the installed system before a test reboots into it."""
 
 # commands to configure SSH for post-reboot access in installed system
 # run these before rebooting from live ISO into installed system

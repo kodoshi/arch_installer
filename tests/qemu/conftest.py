@@ -1,8 +1,4 @@
-"""pytest fixtures for QEMU-based integration tests.
-
-provides fixtures specifically for QEMU-based tests, with explicit
-fixture dependencies (no autouse or session-scoped magic).
-"""
+"""Fixtures for the QEMU tests: VMs booted from the Arch ISO, the package cache, configs."""
 
 import os
 import socket

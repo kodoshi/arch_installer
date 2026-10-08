@@ -1,11 +1,5 @@
-"""curses widget primitives for the TUI installer.
-
-every list on screen (single choice, multiple choice, feature switches, the summary) runs
-on one engine, run_list, which draws, scrolls and moves the cursor; each widget only says
-how its rows read and what its keys do. the text field has its own loop.
-
-a widget given an inherited value starts on it and marks where it came from, so Enter
-keeps it and any other choice overrides it. without one, nothing is preselected.
+"""Curses widgets of the TUI. All lists run on one engine, run_list; the text field
+has its own loop.
 """
 
 import curses

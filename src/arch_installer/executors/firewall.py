@@ -1,4 +1,4 @@
-"""UFW firewall, configured offline and enabled on the first boot of the installed system."""
+"""UFW, configured offline and enabled on the installed system's first boot."""
 
 import logging
 

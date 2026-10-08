@@ -1,7 +1,5 @@
-"""the expectations `verify-install` checks the installed system against.
-
-the installer writes them as shell assignments, so the verification script can `source`
-them without a YAML parser on the target. values are shell-quoted and carry no secrets.
+"""The values verify-install checks the installed system against, written as shell
+assignments.
 """
 
 import shlex

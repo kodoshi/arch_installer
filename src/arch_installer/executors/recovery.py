@@ -1,16 +1,7 @@
-"""the recovery system on the USB boot drive: the Arch live system, started by a signed UKI.
+"""Signed recovery UKI on the USB boot drive, built from the Arch ISO.
 
-the recovery partition holds the ISO's arch/ tree. the UKI holds the ISO's kernel and
-initramfs and a command line that boots that tree (archisodevice). Secure Boot checks
-the UKI, and with cms_verify=y its initramfs checks the live root image against a CMS
-signature before using it.
-
-the ISO's own signature is not used: the certificate it is checked against expires (the
-2026.01 ISO's on 2026-05-30), after which the live system would refuse to boot. instead
-the installer signs the root image with a one-time key, discards the key, and puts its
-certificate into the UKI as a second initramfs that replaces the ISO's /codesign.crt.
-the certificate is inside the signed UKI, so neither it nor the root image can be
-swapped on the drive.
+The live root image is re-signed with a one-time key because the ISO's own certificate
+expires (see docs/usb-boot.md).
 """
 
 import logging

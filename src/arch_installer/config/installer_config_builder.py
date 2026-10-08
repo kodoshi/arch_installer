@@ -1,9 +1,7 @@
-"""setting values -> InstallerConfig.
+"""Builds the InstallerConfig from setting values addressed by dotted path.
 
-a setting is addressed by its dotted path in the model ("storage.swap.size_mb"). the
-builder walks the model's type hints: a path the model does not declare is refused, a
-value of the wrong type is refused with its path, and every field must have a value, so
-settings that no source provided are all reported together instead of being filled in.
+Unknown paths and values of the wrong type are refused with their path, and all
+settings that no source provided are reported together.
 """
 
 import types

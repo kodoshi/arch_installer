@@ -1,4 +1,4 @@
-"""initramfs and unified kernel images (mkinitcpio), Secure Boot keys and systemd-boot."""
+"""Kernel images (UKIs built by mkinitcpio), Secure Boot keys and systemd-boot."""
 
 import logging
 from dataclasses import asdict, dataclass

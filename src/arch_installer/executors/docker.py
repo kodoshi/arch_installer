@@ -1,4 +1,4 @@
-"""docker daemon configuration and the group allowed to run docker through sudo."""
+"""Docker daemon configuration and the group allowed to use Docker."""
 
 import json
 import logging

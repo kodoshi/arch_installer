@@ -1,8 +1,4 @@
-"""Root pytest configuration for all tests.
-
-Provides fixtures that are explicitly requested by tests - no autouse
-fixtures to avoid side effects and make test dependencies clear.
-"""
+"""Puts the repository root on the import path, so tests can import the tests package."""
 
 import os
 import sys

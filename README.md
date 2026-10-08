@@ -26,21 +26,22 @@ An opinionated, declarative, idempotent Arch Linux desktop installer with a focu
 ```bash
 # From Arch ISO live environment
 pacman-key --init
-pacman -Sy --noconfirm git python make
+# glibc is upgraded with python so an older ISO doesn't end up with a mismatched python
+pacman -Sy --noconfirm --needed glibc git python make
 git clone https://github.com/kodoshi/arch_installer.git
 cd arch_installer
 
 # Edit config (recommended)
 nano config/config.yaml
 
-# Option 1: CLI installer with interactive prompts
+# Option 1: interactive terminal UI (TUI)
 make install
 
 # Option 2: Non-interactive (pre-configure config/config.yaml, fill env vars)
 NON_INTERACTIVE=true LUKS_PASSWORD=... USER_PASSWORD=... make install  # ARCH_INSTALLER_SECRETS_KEY can also be used if passwords are encrypted and stored in config.yaml
 ```
 
-The installer will prompt for disk selection, passwords, and optional features. Values from `config/config.yaml` are shown as defaults - press Enter to accept them. All settings can be pre-configured for non-interactive installations.
+The installer will prompt for disk selection, passwords, and optional features. Every screen starts on the value inherited from `config/config.yaml` and the environment, marked `(inherited)`: press Enter to keep it, or choose another to override it. All settings can be pre-configured for non-interactive installations.
 
 At the end of the installation, you can find a final copy of your config file at `/home/<USER>/final_config.yaml` on the installed system.
 
@@ -195,7 +196,6 @@ SOURCE_LUKS_PASSWORD=your_old_password LUKS_PASSWORD=your_new_password ENABLE_MI
 For detailed threat analysis, see [docs/threat-model.md](docs/threat-model.md).
 
 ### Known Issues being worked on
-- GUI installer still a work in progress - use CLI installer for now.
 - The `secure` disk wipe method still has edge cases of failures, especially on VMs. Use `quick` for testing or `discard` for SSDs.
 - `dotfiles-sync` needs more testing with private repos and SSH keys.
 

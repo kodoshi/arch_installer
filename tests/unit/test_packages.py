@@ -1,115 +1,93 @@
-import pytest
+from dataclasses import replace
 
-from arch_installer.steps.packages import PackageInstaller
+from arch_installer.config.models import (
+    CpuVendor,
+    Desktop,
+    DesktopPackages,
+    GpuConfig,
+    GpuDriver,
+    GpuDriverPackages,
+    GpuVendor,
+    PackagesConfig,
+)
+from arch_installer.executors.packages import PackagesExecutor
+from tests.unit.conftest import build_config
 
 
-class TestPackageInstaller:
-    @pytest.fixture
-    def installer(self, minimal_config, runtime_state, fake_runner):
-        return PackageInstaller(minimal_config, runtime_state, fake_runner)
+def packages_executor(config, fake_runner):
+    return PackagesExecutor(config, fake_runner)
 
-    def test_should_call_pacstrap_when_installing_packages(self, installer, fake_runner):
-        # simulate fresh install - no existing system
-        fake_runner.set_response("test -f /mnt/etc/os-release", exit_code=1)
 
-        installer.install_packages()
+class TestPackageCollection:
+    def test_keeps_only_the_matching_microcode(self, fake_runner):
+        config = build_config(
+            system=replace(build_config().system, cpu_vendor=CpuVendor.INTEL),
+            packages=PackagesConfig(base=("base", "intel-ucode", "amd-ucode", "linux")),
+        )
+        collected = packages_executor(config, fake_runner)._collect_packages()
+        assert "intel-ucode" in collected
+        assert "amd-ucode" not in collected
 
-        fake_runner.assert_command_called("pacstrap")
+    def test_drops_unselected_kernels_and_their_headers(self, fake_runner):
+        base = build_config()
+        config = build_config(
+            packages=PackagesConfig(base=("base", "linux", "linux-lts", "linux-lts-headers")),
+            boot=replace(
+                base.boot,
+                kernels=(
+                    base.boot.kernels[0],
+                    replace(base.boot.kernels[0], name="lts", package="linux-lts"),
+                ),
+                selected_kernels=("linux",),
+            ),
+        )
+        collected = packages_executor(config, fake_runner)._collect_packages()
+        assert "linux" in collected
+        assert "linux-lts" not in collected
+        assert "linux-lts-headers" not in collected
 
-    def test_should_collect_base_packages_when_packages_collected(self, installer, fake_runner):
-        # fake_runner.set_default_response(exit_code=0)
+    def test_includes_selected_desktop_and_display_manager_packages(self, fake_runner):
+        config = build_config(
+            packages=PackagesConfig(
+                base=("base",),
+                desktops=DesktopPackages(gnome=("gnome", "gdm")),
+                selected_desktops=(Desktop.GNOME,),
+                display_manager=("sddm",),
+            )
+        )
+        collected = packages_executor(config, fake_runner)._collect_packages()
+        assert "gnome" in collected and "sddm" in collected
 
-        packages = installer._collect_packages()
+    def test_includes_gpu_driver_packages_for_the_vendor(self, fake_runner):
+        config = build_config(
+            gpu=GpuConfig(
+                vendor=GpuVendor.NVIDIA,
+                driver=GpuDriver.NVIDIA_OPEN,
+                drivers=GpuDriverPackages(nvidia_open=("nvidia-open-dkms",)),
+            )
+        )
+        collected = packages_executor(config, fake_runner)._collect_packages()
+        assert "nvidia-open-dkms" in collected
 
-        assert "base" in packages
+    def test_appends_cataloged_packages_by_name(self, fake_runner):
+        config = build_config(
+            packages=PackagesConfig(base=("base",), cataloged=("neovim", "ripgrep"))
+        )
+        collected = packages_executor(config, fake_runner)._collect_packages()
+        assert "neovim" in collected and "ripgrep" in collected
 
-    def test_should_call_genfstab_when_pacstrap_completes(self, installer, fake_runner):
-        # simulate fresh install - no existing system
+
+class TestPackageInstall:
+    def test_pacstraps_a_fresh_system(self, fake_runner):
         fake_runner.set_response("test -f /mnt/etc/os-release", exit_code=1)
         fake_runner.set_response("grep", exit_code=1)
-
-        installer.install_packages()
-
+        packages_executor(build_config(), fake_runner).execute()
+        fake_runner.assert_command_called("pacstrap")
         fake_runner.assert_command_called("genfstab")
 
-    def test_should_include_intel_ucode_when_intel_cpu_detected(
-        self, minimal_config, runtime_state, fake_runner
-    ):
-        runtime_state.cpu_vendor = "intel"
-        installer = PackageInstaller(minimal_config, runtime_state, fake_runner)
-        packages = ["base", "intel-ucode", "amd-ucode", "linux"]
-        filtered = installer._filter_microcode(packages)
-
-        assert "intel-ucode" in filtered
-        assert "amd-ucode" not in filtered
-
-    def test_should_include_amd_ucode_when_amd_cpu_detected(
-        self, minimal_config, runtime_state, fake_runner
-    ):
-        runtime_state.cpu_vendor = "amd"
-        installer = PackageInstaller(minimal_config, runtime_state, fake_runner)
-        packages = ["base", "intel-ucode", "amd-ucode", "linux"]
-        filtered = installer._filter_microcode(packages)
-
-        assert "amd-ucode" in filtered
-        assert "intel-ucode" not in filtered
-
-    def test_should_keep_selected_kernels_when_filtering_kernels(
-        self, minimal_config, runtime_state, fake_runner
-    ):
-        runtime_state.selected_kernels = ["linux"]
-        installer = PackageInstaller(minimal_config, runtime_state, fake_runner)
-        packages = ["linux", "linux-headers", "linux-lts", "linux-lts-headers", "base"]
-        filtered = installer._filter_kernels(packages)
-
-        assert "linux" in filtered
-        assert "linux-headers" in filtered
-        assert "linux-lts" not in filtered
-        assert "linux-lts-headers" not in filtered
-        assert "base" in filtered
-
-    def test_should_return_empty_list_when_no_desktop_selected(
-        self, minimal_config, runtime_state, fake_runner
-    ):
-        runtime_state.selected_desktops = []
-        installer = PackageInstaller(minimal_config, runtime_state, fake_runner)
-        packages = installer._get_desktop_packages()
-        assert packages == []
-
-    def test_should_return_gpu_packages_when_nvidia_selected(
-        self, minimal_config, runtime_state, fake_runner
-    ):
-        runtime_state.gpu_vendor = "nvidia"
-        runtime_state.gpu_driver = "nvidia-dkms"
-        installer = PackageInstaller(minimal_config, runtime_state, fake_runner)
-        packages = installer._get_gpu_packages()
-        assert isinstance(packages, list)
-
-    def test_should_return_empty_list_when_no_gpu_vendor_selected(
-        self, minimal_config, runtime_state, fake_runner
-    ):
-        runtime_state.gpu_vendor = "none"
-        installer = PackageInstaller(minimal_config, runtime_state, fake_runner)
-        packages = installer._get_gpu_packages()
-        assert packages == []
-
-    def test_should_target_mnt_when_running_pacstrap(self, installer, fake_runner):
-        # simulate fresh install - no existing system
-        fake_runner.set_response("test -f /mnt/etc/os-release", exit_code=1)
-        fake_runner.set_default_response(exit_code=0)
-
-        installer.install_packages()
-
-        pacstrap_cmds = fake_runner.get_commands("pacstrap")
-        assert any("/mnt" in cmd for cmd in pacstrap_cmds)
-
-
-class TestPackageFiltering:
-    @pytest.fixture
-    def installer(self, minimal_config, runtime_state, fake_runner):
-        return PackageInstaller(minimal_config, runtime_state, fake_runner)
-
-    def test_should_remove_duplicates_when_packages_deduplicated(self, installer):
-        packages = ["base", "base", "linux", "linux"]
-        unique = list(set(packages))
-        assert len(unique) == 2
+    def test_converges_an_existing_system_with_pacman(self, fake_runner):
+        fake_runner.set_response("test -f /mnt/etc/os-release", exit_code=0)
+        fake_runner.set_response("grep", exit_code=0)
+        packages_executor(build_config(), fake_runner).execute()
+        fake_runner.assert_command_not_called("pacstrap")
+        fake_runner.assert_command_called("pacman -Syu")

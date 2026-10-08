@@ -66,8 +66,7 @@ storage:
     enabled: true
     size_mb: 512
     path: /.swap/swapfile
-    hibernation:
-      enabled: false
+    hibernation: false
 
 boot:
   kernels:
@@ -124,8 +123,6 @@ boot:
   enable_snapshot_boot: false
 
 packages:
-  profile: base
-
   base:
     - base
     - base-devel
@@ -153,7 +150,6 @@ packages:
   display_manager: []
 
 gpu:
-  enabled: false
   vendor: none
   driver: ''
 
@@ -176,8 +172,13 @@ firewall:
 docker:
   enabled: false
 
-# dotfiles disabled for minimal config
-dotfiles:
+notifications:
+  enabled: false
+
+sync:
+  backup_items: []
+
+usb_boot:
   enabled: false
 
 secrets:

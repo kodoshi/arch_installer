@@ -81,11 +81,14 @@ Run with: `poetry run pytest tests/unit/`
 
 Full end-to-end tests in QEMU VMs with real UEFI firmware:
 
-- Complete installation workflows
+- Complete installation workflows (non-interactive and TUI interactive)
 - Secure Boot enrollment and verification
+- Negative Secure Boot test (unsigned binaries blocked)
 - BTRFS snapshot functionality
+- USB boot drive with signed EFI and detached LUKS headers
 - System bootability validation
-- GUI installer with keyboard simulation
+- TUI installer driven through tmux keystrokes (only the secrets key comes from the environment; passwords are inherited from encrypted secrets and kept on their screens)
+- TUI screen-by-screen selections (`test_tui.py`): typed overrides and cursor moves relative to the inherited values
 
 All QEMU installation tests have a 30-minute timeout to prevent hanging.
 
@@ -128,17 +131,13 @@ proxy = PackageCacheProxy(config)
 proxy.precache_packages(ESSENTIAL_PACKAGES)
 ```
 
-### VM State Fixtures (progressive)
+### VM Fixtures
 
-```
-qemu_vm
-    ↓
-qemu_vm_booted_from_iso  (VM started with ISO)
-    ↓
-qemu_vm_with_network     (VM with working network)
-    ↓
-qemu_vm_with_sbctl       (VM with sbctl installed via cache proxy)
-```
+Both fixtures boot the Arch ISO under UEFI in setup mode, set the live root password
+over the console and wait until SSH works:
+
+- `qemu_vm_with_network`: one virtio disk (`/dev/vda`)
+- `qemu_vm_with_usb_disk_and_network`: plus a second disk (`/dev/vdb`) standing in for a USB drive
 
 ## Running Tests
 
@@ -148,8 +147,8 @@ qemu_vm_with_sbctl       (VM with sbctl installed via cache proxy)
 # install QEMU (macOS)
 brew install qemu
 
-# install QEMU + OVMF (Arch Linux)
-pacman -S qemu-full edk2-ovmf
+# install QEMU + OVMF + sshpass (Arch Linux)
+pacman -S qemu-full edk2-ovmf sshpass
 
 # download Arch ISO
 curl -LO https://geo.mirror.pkgbuild.com/iso/latest/archlinux-x86_64.iso
@@ -163,6 +162,9 @@ poetry run pytest tests/unit/
 
 # QEMU tests (slow)
 poetry run pytest tests/qemu/ --arch-iso ./archlinux-x86_64.iso -v
+
+# QEMU tests on 3 VMs in parallel (each VM uses 4 GB RAM and its own SSH port range)
+poetry run pytest tests/qemu/ --arch-iso ./archlinux-x86_64.iso -v -n 3
 
 # everything
 poetry run pytest --arch-iso ./archlinux-x86_64.iso
@@ -185,7 +187,8 @@ poetry run pytest tests/qemu/... --keep-vm
 | `--qemu-memory`       | 4096    | VM memory in MB                                  |
 | `--qemu-cpus`         | 6       | VM CPU count                                     |
 | `--qemu-disk-size`    | 20      | VM disk size in GB                               |
-| `--qemu-headless`     | true    | Run VM without display                           |
+| `--qemu-display`      | false   | Show the VM in an SDL window instead of headless |
+| `--qemu-work-dir`     | `~/.cache/arch-installer-qemu` | Where VM disk images live |
 | `--keep-vm`           | false   | Keep VM running after test                       |
 | `--package-cache-dir` | temp    | Directory for package cache                      |
 | `--offline-mode`      | false   | Fail if package not in cache                     |
@@ -280,7 +283,13 @@ ls /usr/share/edk2-ovmf/            # Linux
 
 ### SSH Connection Fails
 
-The Arch ISO needs manual network setup. The `qemu_vm_with_network` fixture handles this, but raw `qemu_vm_booted_from_iso` may not have networking.
+The Arch ISO's root account has no password, so the fixtures type `echo root:root | chpasswd`
+on the VM console through the QEMU monitor before connecting. `sshpass` must be installed.
+
+### Disk Images and tmpfs
+
+VM disk images go to `--qemu-work-dir`, not `/tmp`. On Arch `/tmp` is usually a RAM-backed
+tmpfs, and a `secure` wipe fills the whole 20 GB virtual disk, which would end up in RAM.
 
 ### Port Conflicts
 

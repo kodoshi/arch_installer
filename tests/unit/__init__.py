@@ -4,13 +4,11 @@ Provides fake implementations of CommandRunner for testing
 without executing actual system commands.
 """
 
-from __future__ import annotations
-
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
-from typing import Callable
 
 from arch_installer.core.command import CommandExecutionResult, CommandRunner
+from arch_installer.errors import CommandError
 
 
 @dataclass
@@ -85,8 +83,6 @@ class FakeCommandRunner(CommandRunner):
         input_data: str | None = None,
     ) -> CommandExecutionResult:
         """Execute (fake) a command and return configured result."""
-        from arch_installer.errors import CommandError
-
         cmd_str = command if isinstance(command, str) else " ".join(command)
 
         # Record the command
@@ -141,8 +137,6 @@ class FakeCommandRunner(CommandRunner):
         input_data: str | None = None,
     ) -> CommandExecutionResult:
         """Execute (fake) a chroot command."""
-        from arch_installer.errors import CommandError
-
         cmd_str = command if isinstance(command, str) else " ".join(command)
         full_cmd = f"arch-chroot {chroot_path} {cmd_str}"
 
@@ -195,6 +189,14 @@ class FakeCommandRunner(CommandRunner):
         if pattern:
             commands = [c for c in commands if pattern in c]
         return commands
+
+    def written_content(self, path: str) -> str:
+        writes = [r for r in self.recorded_commands if r.command == f"cat > {path}"]
+        if not writes:
+            raise AssertionError(
+                f"Expected {path} to be written.\nRecorded commands: {self.get_commands()}"
+            )
+        return writes[-1].input_data or ""
 
     def assert_command_called(self, pattern: str) -> None:
         """Assert that a command matching pattern was called."""

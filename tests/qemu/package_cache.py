@@ -10,16 +10,14 @@ this eliminates network dependencies during tests and ensures all
 package versions are controlled and reproducible.
 """
 
-import hashlib
+import functools
 import http.server
 import os
-import shutil
 import socketserver
 import threading
 import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
 
 
 @dataclass(frozen=True)
@@ -134,8 +132,8 @@ class PackageCacheProxy:
 
     def __init__(self, config: PackageCacheConfig):
         self.config = config
-        self._server: Optional[socketserver.TCPServer] = None
-        self._thread: Optional[threading.Thread] = None
+        self._server: socketserver.TCPServer | None = None
+        self._thread: threading.Thread | None = None
 
     def setup_cache_directory(self):
         """create cache directory structure."""
@@ -150,9 +148,7 @@ class PackageCacheProxy:
         """start the cache proxy server."""
         self.setup_cache_directory()
 
-        handler = lambda *args, **kwargs: PackageCacheHandler(
-            *args, cache_config=self.config, **kwargs
-        )
+        handler = functools.partial(PackageCacheHandler, cache_config=self.config)
 
         self._server = socketserver.TCPServer((self.config.host, self.config.port), handler)
         self._server.allow_reuse_address = True

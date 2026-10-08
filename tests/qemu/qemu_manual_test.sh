@@ -12,9 +12,12 @@
 # Options:
 #   --disk-size SIZE     Disk size in GB (default: 40)
 #   --memory SIZE        RAM size in MB (default: 4096)
-#   --work-dir DIR       Working directory for VM files (default: /tmp/qemu-manual-test)
+#   --work-dir DIR       Working directory for VM files
+#                        (default: ~/.cache/arch-installer-qemu/manual, not /tmp: often tmpfs)
 #   --vnc-port PORT      VNC display port offset (default: 50, so VNC port 5950)
 #   --ssh-port PORT      SSH port forwarding (default: 2222)
+#   --usb-disk [SIZE]    Add a second virtio disk simulating a USB drive for PDE testing
+#                        (default size: 4GB, appears as /dev/vdb in the VM)
 #   --keep               Keep VM files after exit
 #   --headless           Run without VNC display (SSH only)
 #
@@ -38,16 +41,19 @@
 set -euo pipefail
 
 # default configuration
-ARCH_ISO="/home/USER/Downloads/archlinux.iso"
+ARCH_ISO="$HOME/Downloads/archlinux.iso"
 DISK_SIZE_GB=40
 MEMORY_MB=4096
 CPUS=4
-WORK_DIR="/tmp/qemu-manual-test"
+# not /tmp: it is usually a RAM-backed tmpfs and the disk image grows to its full size
+WORK_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/arch-installer-qemu/manual"
 VNC_PORT=50
 SSH_PORT=2222
 MONITOR_PORT=4444
 KEEP_FILES=false
 HEADLESS=false
+USB_DISK=false
+USB_DISK_SIZE_GB=4
 
 # ANSI colors
 RED='\033[0;31m'
@@ -94,6 +100,15 @@ while [[ $# -gt 0 ]]; do
         --ssh-port)
             SSH_PORT="$2"
             shift 2
+            ;;
+        --usb-disk)
+            USB_DISK=true
+            # accept optional size argument (next arg if it's a number)
+            if [[ $# -gt 1 && "$2" =~ ^[0-9]+$ ]]; then
+                USB_DISK_SIZE_GB="$2"
+                shift
+            fi
+            shift
             ;;
         --keep)
             KEEP_FILES=true
@@ -191,6 +206,16 @@ setup_work_dir() {
     print_info "Setting up UEFI firmware..."
     cp "$OVMF_VARS" "$WORK_DIR/OVMF_VARS.fd"
 
+    # create USB disk image if requested
+    if [[ "$USB_DISK" == "true" ]]; then
+        if [[ ! -f "$WORK_DIR/usb_disk.qcow2" ]]; then
+            print_info "Creating ${USB_DISK_SIZE_GB}GB USB disk image (will appear as /dev/vdb)..."
+            qemu-img create -f qcow2 "$WORK_DIR/usb_disk.qcow2" "${USB_DISK_SIZE_GB}G"
+        else
+            print_info "Using existing USB disk image"
+        fi
+    fi
+
     print_success "Work directory ready"
 }
 
@@ -224,6 +249,14 @@ build_qemu_command() {
     cmd+=(
         -drive "file=$WORK_DIR/disk.qcow2,format=qcow2,if=virtio"
     )
+
+    # USB disk (second virtio disk for PDE testing)
+    if [[ "$USB_DISK" == "true" ]]; then
+        cmd+=(
+            -drive "file=$WORK_DIR/usb_disk.qcow2,format=qcow2,if=virtio"
+        )
+        print_info "USB disk attached as /dev/vdb (${USB_DISK_SIZE_GB}GB)" >&2
+    fi
 
     # CD-ROM with ISO
     cmd+=(
@@ -461,6 +494,10 @@ print_connection_info() {
     fi
     echo "  SSH:  ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null root@localhost -p $SSH_PORT"
     echo "        password: root"
+    if [[ "$USB_DISK" == "true" ]]; then
+        echo ""
+        echo "  USB:  /dev/vdb (${USB_DISK_SIZE_GB}GB) - use USB_BOOT_DEVICE=/dev/vdb"
+    fi
     echo "Press Ctrl+C to stop the VM"
     echo ""
 }

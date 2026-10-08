@@ -4,15 +4,11 @@ from dataclasses import dataclass
 
 
 class ArchInstallerError(Exception):
-    """base exception for all installer errors."""
-
     pass
 
 
 @dataclass
 class CommandError(ArchInstallerError):
-    """raised when a system command fails."""
-
     command: str
     exit_code: int
     stdout: str
@@ -27,18 +23,8 @@ class CommandError(ArchInstallerError):
 
 
 class ConfigurationError(ArchInstallerError):
-    """raised when configuration is invalid or missing."""
-
     pass
 
 
-class StorageError(ArchInstallerError):
-    """raised when storage operations fail."""
-
-    pass
-
-
-class ValidationError(ArchInstallerError):
-    """raised when validation fails."""
-
+class MigrationError(ArchInstallerError):
     pass

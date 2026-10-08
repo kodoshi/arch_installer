@@ -4,16 +4,7 @@ provides functions to manipulate UEFI secure boot state in QEMU VMs
 including enabling/disabling setup mode and secure boot enforcement.
 """
 
-import sys
-import time
-
 from tests.qemu.vm import QemuVm
-
-
-class UefiSetupError(Exception):
-    """error during UEFI setup manipulation."""
-
-    pass
 
 
 def get_efi_var_byte(vm: QemuVm, var_path: str) -> int:
@@ -22,7 +13,7 @@ def get_efi_var_byte(vm: QemuVm, var_path: str) -> int:
     returns:
         integer value of the byte, or -1 if variable not found
     """
-    exit_code, stdout, _ = vm.run_ssh_command(
+    _exit_code, stdout, _ = vm.run_ssh_command(
         f"[ -f {var_path} ] && od -An -t u1 -j4 -N1 {var_path} || echo -1",
         timeout=10,
     )
@@ -70,7 +61,7 @@ def get_verbose_secure_boot_status(vm: QemuVm) -> dict:
     )
 
     # check for PK enrollment via efivar
-    exit_code, stdout, _ = vm.run_ssh_command(
+    _exit_code, stdout, _ = vm.run_ssh_command(
         "ls /sys/firmware/efi/efivars/PK-* 2>/dev/null | wc -l",
         timeout=10,
     )
@@ -148,8 +139,8 @@ def verify_secure_boot_properly_configured(vm: QemuVm) -> bool:
         return False
 
     print("    ✓ PASS: secure boot properly configured")
-    print(f"      note: SecureBoot enforcement in QEMU/OVMF may show disabled")
-    print(f"      key enrollment and signing verified via efivars")
+    print("      note: SecureBoot enforcement in QEMU/OVMF may show disabled")
+    print("      key enrollment and signing verified via efivars")
 
     return True
 

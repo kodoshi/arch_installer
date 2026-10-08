@@ -6,8 +6,6 @@ UKI generation, system configuration, and services.
 """
 
 from dataclasses import dataclass
-from pathlib import Path
-from typing import Callable, Optional
 
 from tests.qemu.vm import QemuVm
 
@@ -19,7 +17,7 @@ class AssertionResult:
     name: str
     passed: bool
     message: str
-    details: Optional[str] = None
+    details: str | None = None
 
 
 class QemuAssertionError(Exception):
@@ -56,7 +54,7 @@ class InstallationAssertions:
         name: str,
         condition: bool,
         message: str,
-        details: Optional[str] = None,
+        details: str | None = None,
     ) -> AssertionResult:
         """record an assertion result."""
         result = AssertionResult(
@@ -66,6 +64,7 @@ class InstallationAssertions:
             details=details,
         )
         self._results.append(result)
+        print(f"    ✓ {name}" if condition else f"    ✗ {name}: {message}")
         return result
 
     def get_results(self) -> list[AssertionResult]:
@@ -81,13 +80,29 @@ class InstallationAssertions:
         if any(not r.passed for r in self._results):
             raise QemuAssertionError(self._results)
 
+    def _assert_all_present(
+        self,
+        name: str,
+        command: str,
+        expected_items: list[str],
+        label: str,
+    ) -> AssertionResult:
+        _code, stdout, _ = self._run_cmd(command)
+        missing = [item for item in expected_items if item not in stdout]
+        return self._assert(
+            name,
+            len(missing) == 0,
+            f"missing {label}: {missing}" if missing else f"all {label} present",
+            stdout,
+        )
+
     # =========================================================================
     # partition assertions
     # =========================================================================
 
     def assert_partitions_exist(self, device: str = "/dev/vda") -> AssertionResult:
         """verify disk has expected partitions."""
-        code, stdout, _ = self._run_cmd(f"lsblk -n -o TYPE,NAME {device}")
+        _code, stdout, _ = self._run_cmd(f"lsblk -n -o TYPE,NAME {device}")
         has_parts = "part" in stdout
 
         return self._assert(
@@ -101,7 +116,7 @@ class InstallationAssertions:
         """verify EFI partition has correct type (EFI System Partition GUID)."""
         # Use lsblk -o PARTTYPE to get GPT partition type GUID
         # EFI System Partition GUID: c12a7328-f81f-11d2-ba4b-00a0c93ec93b
-        code, stdout, _ = self._run_cmd(f"lsblk -n -o PARTTYPE {device}1")
+        _code, stdout, _ = self._run_cmd(f"lsblk -n -o PARTTYPE {device}1")
         parttype = stdout.strip().lower()
         # EFI System Partition GUID
         has_efi_type = "c12a7328-f81f-11d2-ba4b-00a0c93ec93b" in parttype
@@ -117,7 +132,7 @@ class InstallationAssertions:
         """verify root partition has Linux x86-64 root type (8304)."""
         # Use lsblk -o PARTTYPE to get GPT partition type GUID
         # Linux x86-64 root GUID: 4f68bce3-e8cd-4db1-96e7-fbcaf984b709
-        code, stdout, _ = self._run_cmd(f"lsblk -n -o PARTTYPE {device}2")
+        _code, stdout, _ = self._run_cmd(f"lsblk -n -o PARTTYPE {device}2")
         parttype = stdout.strip().lower()
         # Linux x86-64 root partition GUID
         has_root_type = "4f68bce3-e8cd-4db1-96e7-fbcaf984b709" in parttype
@@ -136,7 +151,7 @@ class InstallationAssertions:
         tolerance_percent: float = 10.0,
     ) -> AssertionResult:
         """verify EFI partition is approximately the expected size."""
-        code, stdout, _ = self._run_cmd(f"lsblk -b -n -o SIZE {device}1")
+        _code, stdout, _ = self._run_cmd(f"lsblk -b -n -o SIZE {device}1")
 
         try:
             size_bytes = int(stdout.strip())
@@ -179,7 +194,7 @@ class InstallationAssertions:
         mapper_name: str = "cryptroot",
     ) -> AssertionResult:
         """verify LUKS version/type."""
-        code, stdout, _ = self._run_cmd(f"cryptsetup status {mapper_name}")
+        _code, stdout, _ = self._run_cmd(f"cryptsetup status {mapper_name}")
         has_type = expected_type.lower() in stdout.lower()
 
         return self._assert(
@@ -195,7 +210,7 @@ class InstallationAssertions:
         mapper_name: str = "cryptroot",
     ) -> AssertionResult:
         """verify LUKS cipher."""
-        code, stdout, _ = self._run_cmd(f"cryptsetup status {mapper_name}")
+        _code, stdout, _ = self._run_cmd(f"cryptsetup status {mapper_name}")
         has_cipher = expected_cipher in stdout
 
         return self._assert(
@@ -210,43 +225,23 @@ class InstallationAssertions:
     # =========================================================================
 
     def assert_btrfs_subvolumes_exist(
-        self,
-        expected_subvols: list[str],
-        mount_point: str = "/mnt",
+        self, expected_subvols: list[str], mount_point: str = "/mnt"
     ) -> AssertionResult:
-        """verify expected BTRFS subvolumes exist."""
-        code, stdout, _ = self._run_cmd(f"btrfs subvolume list {mount_point}")
-
-        missing = []
-        for subvol in expected_subvols:
-            if subvol not in stdout:
-                missing.append(subvol)
-
-        return self._assert(
+        return self._assert_all_present(
             "btrfs_subvolumes",
-            len(missing) == 0,
-            f"missing subvolumes: {missing}" if missing else "all subvolumes present",
-            stdout,
+            f"btrfs subvolume list {mount_point}",
+            expected_subvols,
+            "subvolumes",
         )
 
     def assert_btrfs_mount_options(
-        self,
-        expected_options: list[str],
-        mount_point: str = "/mnt",
+        self, expected_options: list[str], mount_point: str = "/mnt"
     ) -> AssertionResult:
-        """verify BTRFS mount options."""
-        code, stdout, _ = self._run_cmd(f"findmnt -n -o OPTIONS {mount_point}")
-
-        missing = []
-        for opt in expected_options:
-            if opt not in stdout:
-                missing.append(opt)
-
-        return self._assert(
+        return self._assert_all_present(
             "btrfs_mount_options",
-            len(missing) == 0,
-            f"missing mount options: {missing}" if missing else "all options present",
-            stdout,
+            f"findmnt -n -o OPTIONS {mount_point}",
+            expected_options,
+            "mount options",
         )
 
     def assert_subvolume_mounted(
@@ -255,9 +250,8 @@ class InstallationAssertions:
         mount_point: str,
     ) -> AssertionResult:
         """verify a specific subvolume is mounted at expected path."""
-        code, stdout, _ = self._run_cmd(f"findmnt -n -o SOURCE,TARGET {mount_point}")
+        _code, stdout, _ = self._run_cmd(f"findmnt -n -o SOURCE,TARGET {mount_point}")
 
-        # check subvol is in source and mount point matches
         source_ok = subvol_name in stdout or f"subvol=/{subvol_name}" in stdout
         target_ok = mount_point in stdout
 
@@ -270,7 +264,7 @@ class InstallationAssertions:
 
     def assert_nocow_attribute(self, path: str) -> AssertionResult:
         """verify directory has No_COW attribute for BTRFS."""
-        code, stdout, _ = self._run_cmd(f"lsattr -d {path}")
+        _code, stdout, _ = self._run_cmd(f"lsattr -d {path}")
         has_nocow = "C" in stdout
 
         return self._assert(
@@ -286,7 +280,7 @@ class InstallationAssertions:
 
     def assert_systemd_boot_installed(self, efi_path: str = "/efi") -> AssertionResult:
         """verify systemd-boot is installed."""
-        code, stdout, _ = self._run_cmd(f"ls {efi_path}/EFI/BOOT/BOOTX64.EFI")
+        code, _stdout, _ = self._run_cmd(f"ls {efi_path}/EFI/BOOT/BOOTX64.EFI")
         exists = code == 0
 
         return self._assert(
@@ -312,7 +306,7 @@ class InstallationAssertions:
         efi_path: str = "/efi",
     ) -> AssertionResult:
         """verify loader.conf has correct timeout."""
-        code, stdout, _ = self._run_cmd(f"cat {efi_path}/loader/loader.conf")
+        _code, stdout, _ = self._run_cmd(f"cat {efi_path}/loader/loader.conf")
         has_timeout = f"timeout {expected_timeout}" in stdout
 
         return self._assert(
@@ -324,7 +318,7 @@ class InstallationAssertions:
 
     def assert_loader_editor_disabled(self, efi_path: str = "/efi") -> AssertionResult:
         """verify bootloader editor is disabled (security)."""
-        code, stdout, _ = self._run_cmd(f"cat {efi_path}/loader/loader.conf")
+        _code, stdout, _ = self._run_cmd(f"cat {efi_path}/loader/loader.conf")
         editor_disabled = "editor no" in stdout
 
         return self._assert(
@@ -345,107 +339,26 @@ class InstallationAssertions:
         )
 
     def assert_uki_files_exist(
-        self,
-        expected_kernels: list[str],
-        efi_path: str = "/efi",
+        self, expected_kernels: list[str], efi_path: str = "/efi"
     ) -> AssertionResult:
-        """verify UKI files exist for expected kernels."""
-        code, stdout, _ = self._run_cmd(f"ls {efi_path}/EFI/Linux/")
-
-        missing = []
-        for kernel in expected_kernels:
-            # UKI naming: arch-linux-hardened-default.efi, etc.
-            if kernel not in stdout:
-                missing.append(kernel)
-
-        return self._assert(
-            "uki_files",
-            len(missing) == 0,
-            f"missing UKIs for kernels: {missing}" if missing else "all UKIs present",
-            stdout,
+        return self._assert_all_present(
+            "uki_files", f"ls {efi_path}/EFI/Linux/", expected_kernels, "UKIs for kernels"
         )
 
     def assert_kernel_cmdline_contains(
-        self,
-        expected_params: list[str],
-        cmdline_path: str = "/etc/kernel/cmdline",
+        self, expected_params: list[str], cmdline_path: str = "/etc/kernel/cmdline"
     ) -> AssertionResult:
-        """verify kernel command line contains expected parameters."""
-        code, stdout, _ = self._run_cmd(f"cat {cmdline_path}")
-
-        missing = []
-        for param in expected_params:
-            if param not in stdout:
-                missing.append(param)
-
-        return self._assert(
-            "kernel_cmdline",
-            len(missing) == 0,
-            f"missing cmdline params: {missing}" if missing else "all params present",
-            stdout,
+        return self._assert_all_present(
+            "kernel_cmdline", f"cat {cmdline_path}", expected_params, "cmdline params"
         )
 
     # =========================================================================
     # secure boot assertions
     # =========================================================================
 
-    def assert_secure_boot_setup_mode(self) -> AssertionResult:
-        """verify secure boot is in setup mode (keys not enrolled yet)."""
-        code, stdout, stderr = self._run_cmd("sbctl status")
-
-        # primary check: sbctl output if available
-        # sbctl shows "Setup Mode:    ✗ Enabled" when setup mode IS enabled
-        # (the ✗ indicates it's a bad security state, but enabled means we can enroll)
-        if code == 0:
-            in_setup = False
-            for line in stdout.split("\n"):
-                if "setup mode" in line.lower():
-                    in_setup = "enabled" in line.lower()
-                    break
-            return self._assert(
-                "secure_boot_setup_mode",
-                in_setup,
-                "expected secure boot in setup mode",
-                stdout,
-            )
-
-        # fallback: read efivars directly (works on live ISO without sbctl)
-        # SetupMode and SecureBoot are EFI variables under efivarfs. The first
-        # 4 bytes are attributes; the 5th byte is the boolean value.
-        setup_var = "/sys/firmware/efi/efivars/SetupMode-8be4df61-93ca-11d2-aa0d-00e098032b8c"
-        secure_var = "/sys/firmware/efi/efivars/SecureBoot-8be4df61-93ca-11d2-aa0d-00e098032b8c"
-
-        # extract the 5th byte (skip 4 attr bytes) as integer 0/1
-        cmd = f"[ -f {setup_var} ] && dd if={setup_var} bs=1 skip=4 count=1 status=none | od -An -t u1 -v || echo MISSING"
-        c1, out_setup, _ = self._run_cmd(cmd)
-
-        cmd2 = f"[ -f {secure_var} ] && dd if={secure_var} bs=1 skip=4 count=1 status=none | od -An -t u1 -v || echo MISSING"
-        c2, out_secure, _ = self._run_cmd(cmd2)
-
-        try:
-            setup_byte = int(out_setup.strip()) if "MISSING" not in out_setup else -1
-        except ValueError:
-            setup_byte = -1
-
-        try:
-            secure_byte = int(out_secure.strip()) if "MISSING" not in out_secure else -1
-        except ValueError:
-            secure_byte = -1
-
-        # in setup mode, SetupMode==1 typically and SecureBoot==0
-        in_setup = setup_byte == 1
-        details = f"sbctl_unavailable(code={code}); efivars: SetupMode={setup_byte}, SecureBoot={secure_byte}"
-
-        return self._assert(
-            "secure_boot_setup_mode",
-            in_setup,
-            "expected secure boot in setup mode",
-            details,
-        )
-
     def assert_secure_boot_keys_created(self) -> AssertionResult:
         """verify sbctl keys have been created."""
-        code, stdout, _ = self._run_cmd("sbctl status")
+        _code, stdout, _ = self._run_cmd("sbctl status")
         keys_created = "keys" in stdout.lower() and "created" in stdout.lower()
 
         # alternative check: key files exist at expected locations
@@ -465,7 +378,7 @@ class InstallationAssertions:
 
             # also check if files are signed (implies keys exist)
             if not keys_created:
-                code3, verify_out, _ = self._run_cmd("sbctl verify 2>&1 | head -5")
+                _code3, verify_out, _ = self._run_cmd("sbctl verify 2>&1 | head -5")
                 if "signed" in verify_out.lower():
                     keys_created = True
                     stdout += f"\n[files are signed, keys must exist: {verify_out}]"
@@ -474,18 +387,6 @@ class InstallationAssertions:
             "secure_boot_keys_created",
             keys_created,
             "expected sbctl keys to be created",
-            stdout,
-        )
-
-    def assert_uki_signed(self, uki_path: str) -> AssertionResult:
-        """verify a UKI file is signed for secure boot."""
-        code, stdout, _ = self._run_cmd(f"sbctl verify {uki_path}")
-        is_signed = code == 0 and "signed" in stdout.lower()
-
-        return self._assert(
-            f"uki_signed_{Path(uki_path).name}",
-            is_signed,
-            f"expected {uki_path} to be signed",
             stdout,
         )
 
@@ -515,13 +416,29 @@ class InstallationAssertions:
             stdout,
         )
 
+    def assert_esp_random_seed_private(self, efi_path: str = "/efi") -> AssertionResult:
+        # systemd-boot and the UKI stub rewrite the seed every boot, so it is expected to
+        # exist; what matters is that only root can read it
+        seed_path = f"{efi_path}/loader/random-seed"
+        code, stdout, _ = self._run_cmd(f"stat -c %a {seed_path}")
+        if code != 0:
+            return self._assert("esp_random_seed_private", True, "no random seed on ESP")
+
+        mode = stdout.strip()
+        readable_by_others = int(mode, 8) & 0o077 != 0
+        return self._assert(
+            "esp_random_seed_private",
+            not readable_by_others,
+            f"expected {seed_path} to be root-only, got mode {mode}",
+        )
+
     # =========================================================================
     # system configuration assertions
     # =========================================================================
 
     def assert_hostname(self, expected: str) -> AssertionResult:
         """verify hostname is configured."""
-        code, stdout, _ = self._run_cmd("cat /etc/hostname")
+        _code, stdout, _ = self._run_cmd("cat /etc/hostname")
         matches = expected in stdout.strip()
 
         return self._assert(
@@ -533,7 +450,7 @@ class InstallationAssertions:
 
     def assert_timezone(self, expected: str) -> AssertionResult:
         """verify timezone is configured."""
-        code, stdout, _ = self._run_cmd("readlink /etc/localtime")
+        _code, stdout, _ = self._run_cmd("readlink /etc/localtime")
         matches = expected in stdout
 
         return self._assert(
@@ -545,7 +462,7 @@ class InstallationAssertions:
 
     def assert_locale(self, expected: str) -> AssertionResult:
         """verify locale is configured."""
-        code, stdout, _ = self._run_cmd("cat /etc/locale.conf")
+        _code, stdout, _ = self._run_cmd("cat /etc/locale.conf")
         matches = expected in stdout
 
         return self._assert(
@@ -557,7 +474,7 @@ class InstallationAssertions:
 
     def assert_keymap(self, expected: str) -> AssertionResult:
         """verify console keymap is configured."""
-        code, stdout, _ = self._run_cmd("cat /etc/vconsole.conf")
+        _code, stdout, _ = self._run_cmd("cat /etc/vconsole.conf")
         matches = f"KEYMAP={expected}" in stdout
 
         return self._assert(
@@ -580,43 +497,26 @@ class InstallationAssertions:
         )
 
     def assert_user_in_groups(self, username: str, groups: list[str]) -> AssertionResult:
-        """verify user is member of expected groups."""
-        code, stdout, _ = self._run_cmd(f"groups {username}")
-
-        missing = []
-        for group in groups:
-            if group not in stdout:
-                missing.append(group)
-
-        return self._assert(
-            f"user_{username}_groups",
-            len(missing) == 0,
-            f"user missing groups: {missing}" if missing else "user in all groups",
-            stdout,
+        return self._assert_all_present(
+            f"user_{username}_groups", f"groups {username}", groups, "groups"
         )
 
     # =========================================================================
     # mkinitcpio assertions
     # =========================================================================
 
-    def assert_mkinitcpio_hooks(
-        self,
-        expected_hooks: list[str],
-        config_path: str = "/etc/mkinitcpio.conf",
-    ) -> AssertionResult:
-        """verify mkinitcpio.conf has required hooks."""
-        code, stdout, _ = self._run_cmd(f"cat {config_path}")
-
-        missing = []
-        for hook in expected_hooks:
-            if hook not in stdout:
-                missing.append(hook)
-
+    def assert_final_config_written(self, username: str) -> AssertionResult:
+        final_config_path = f"/home/{username}/final_config.yaml"
+        code, _, _ = self._run_cmd(f"test -f {final_config_path}")
         return self._assert(
-            "mkinitcpio_hooks",
-            len(missing) == 0,
-            f"missing hooks: {missing}" if missing else "all hooks present",
-            stdout,
+            "final_config_written", code == 0, f"expected {final_config_path} to exist"
+        )
+
+    def assert_mkinitcpio_hooks(
+        self, expected_hooks: list[str], config_path: str = "/etc/mkinitcpio.conf"
+    ) -> AssertionResult:
+        return self._assert_all_present(
+            "mkinitcpio_hooks", f"cat {config_path}", expected_hooks, "hooks"
         )
 
     # =========================================================================
@@ -654,11 +554,11 @@ class InstallationAssertions:
     def assert_fstab_entry(
         self,
         mount_point: str,
-        fs_type: Optional[str] = None,
-        options: Optional[list[str]] = None,
+        fs_type: str | None = None,
+        options: list[str] | None = None,
     ) -> AssertionResult:
         """verify fstab has entry for mount point with expected options."""
-        code, stdout, _ = self._run_cmd("cat /etc/fstab")
+        _code, stdout, _ = self._run_cmd("cat /etc/fstab")
 
         has_mount = mount_point in stdout
 
@@ -676,7 +576,7 @@ class InstallationAssertions:
         return self._assert(
             f"fstab_{mount_point.replace('/', '_')}",
             ok,
-            f"fstab entry issues" if not ok else "OK",
+            "fstab entry issues" if not ok else "OK",
             stdout[:500],
         )
 
@@ -701,7 +601,7 @@ class InstallationAssertions:
         tolerance_percent: float = 10.0,
     ) -> AssertionResult:
         """verify swapfile is approximately expected size."""
-        code, stdout, _ = self._run_cmd(f"stat -c '%s' {path}")
+        _code, stdout, _ = self._run_cmd(f"stat -c '%s' {path}")
 
         try:
             size_bytes = int(stdout.strip())
@@ -724,7 +624,7 @@ class InstallationAssertions:
 
     def assert_swap_active(self, path: str = "/.swap/swapfile") -> AssertionResult:
         """verify swap is active."""
-        code, stdout, _ = self._run_cmd("cat /proc/swaps")
+        _code, stdout, _ = self._run_cmd("cat /proc/swaps")
 
         # swapfile path may be listed with brackets or without
         has_swap = path in stdout or path.replace("/", "") in stdout.replace("/", "")
@@ -738,7 +638,7 @@ class InstallationAssertions:
 
     def assert_swapfile_in_fstab(self, path: str = "/.swap/swapfile") -> AssertionResult:
         """verify swapfile is configured in fstab."""
-        code, stdout, _ = self._run_cmd("cat /etc/fstab")
+        _code, stdout, _ = self._run_cmd("cat /etc/fstab")
 
         has_entry = path in stdout
 
@@ -762,7 +662,7 @@ class InstallationAssertions:
         checks kernel cmdline for resume= parameter pointing to the
         correct device, and resume_offset= for swapfile-based hibernation.
         """
-        code, stdout, _ = self._run_cmd("cat /proc/cmdline")
+        _code, stdout, _ = self._run_cmd("cat /proc/cmdline")
 
         has_resume = "resume=" in stdout
 
@@ -779,7 +679,7 @@ class InstallationAssertions:
         for swapfile-based hibernation, the resume_offset must be set
         to the physical offset of the swapfile on the disk.
         """
-        code, stdout, _ = self._run_cmd("cat /proc/cmdline")
+        _code, stdout, _ = self._run_cmd("cat /proc/cmdline")
 
         has_offset = "resume_offset=" in stdout
 
@@ -802,13 +702,14 @@ class InstallationAssertions:
 
         for busybox-based initramfs, the traditional 'resume' hook is required.
         """
-        code, stdout, _ = self._run_cmd(f"cat {config_path}")
+        _code, stdout, _ = self._run_cmd(f"cat {config_path}")
 
         # check for systemd-based initramfs (handles resume automatically)
         has_systemd_initramfs = "systemd" in stdout and "sd-encrypt" in stdout
 
         # check for traditional resume hook (busybox initramfs)
-        has_resume_hook = "resume" in stdout and "resume" not in "sd-encrypt"
+        # must confirm "resume" appears as a standalone hook, not as part of "sd-encrypt"
+        has_resume_hook = "resume" in stdout and "sd-encrypt" not in stdout
 
         # either systemd initramfs OR explicit resume hook is valid
         is_valid = has_systemd_initramfs or has_resume_hook
@@ -821,12 +722,12 @@ class InstallationAssertions:
         )
 
     # =========================================================================
-    # packages assertions
+    # package assertions
     # =========================================================================
 
     def assert_package_installed(self, package: str) -> AssertionResult:
         """verify a package is installed."""
-        code, stdout, _ = self._run_cmd(f"pacman -Qi {package}")
+        code, _stdout, _ = self._run_cmd(f"pacman -Qi {package}")
 
         return self._assert(
             f"package_{package}",
@@ -863,33 +764,11 @@ class InstallationAssertions:
             "expected snapshot UKI refresh hook and script",
         )
 
-    def assert_manage_snapshot_ukis_exists(self) -> AssertionResult:
-        """verify manage-snapshot-ukis script is deployed and executable."""
-        code, stdout, _ = self._run_cmd("test -x /usr/local/bin/manage-snapshot-ukis")
-
-        return self._assert(
-            "manage_snapshot_ukis_executable",
-            code == 0,
-            "expected manage-snapshot-ukis to exist and be executable",
-        )
-
-    def assert_snapper_config_exists(self, config_name: str = "root") -> AssertionResult:
-        """verify snapper configuration exists."""
-        code, stdout, _ = self._run_cmd(f"snapper -c {config_name} list")
-
-        return self._assert(
-            f"snapper_config_{config_name}",
-            code == 0,
-            f"expected snapper config '{config_name}'",
-            stdout,
-        )
-
     def assert_snapshot_created(self, config_name: str = "root") -> AssertionResult:
         """verify at least one snapshot exists for the given config."""
-        code, stdout, _ = self._run_cmd(f"snapper -c {config_name} list --columns number")
+        _code, stdout, _ = self._run_cmd(f"snapper -c {config_name} list --columns number")
 
-        # output should have at least one numeric line (excluding header)
-        lines = [l.strip() for l in stdout.strip().split("\n") if l.strip().isdigit()]
+        lines = [line.strip() for line in stdout.strip().split("\n") if line.strip().isdigit()]
         has_snapshots = len(lines) > 0
 
         return self._assert(
@@ -914,22 +793,41 @@ class InstallationAssertions:
 
     def assert_snapshot_uki_in_bootloader(self, snapshot_id: int) -> AssertionResult:
         """verify snapshot UKI is detected by systemd-boot."""
-        code, stdout, _ = self._run_cmd("bootctl list --no-pager")
+        _code, stdout, _ = self._run_cmd("bootctl list --no-pager")
 
-        snapshot_pattern = f"snapshot" in stdout.lower() or str(snapshot_id) in stdout
+        has_snapshot = "snapshot" in stdout.lower() or str(snapshot_id) in stdout
 
         return self._assert(
             f"snapshot_in_bootloader_{snapshot_id}",
-            snapshot_pattern,
+            has_snapshot,
             f"expected snapshot {snapshot_id} in bootloader entries",
+            stdout,
+        )
+
+    def assert_manage_snapshot_ukis_exists(self) -> AssertionResult:
+        """verify manage-snapshot-ukis script is deployed and executable."""
+        code, _stdout, _ = self._run_cmd("test -x /usr/local/bin/manage-snapshot-ukis")
+
+        return self._assert(
+            "manage_snapshot_ukis_executable",
+            code == 0,
+            "expected manage-snapshot-ukis to exist and be executable",
+        )
+
+    def assert_snapper_config_exists(self, config_name: str = "root") -> AssertionResult:
+        """verify snapper configuration exists."""
+        code, stdout, _ = self._run_cmd(f"snapper -c {config_name} list")
+
+        return self._assert(
+            f"snapper_config_{config_name}",
+            code == 0,
+            f"expected snapper config '{config_name}'",
             stdout,
         )
 
     def assert_snapshot_ukis_list(self) -> AssertionResult:
         """verify snapshot UKI listing command works."""
-        code, stdout, _ = self._run_cmd(
-            "/usr/local/bin/manage-snapshot-ukis list 2>/dev/null || true"
-        )
+        code, stdout, _ = self._run_cmd("/usr/local/bin/manage-snapshot-ukis list 2>/dev/null")
 
         return self._assert(
             "snapshot_ukis_list",
@@ -941,7 +839,7 @@ class InstallationAssertions:
     def assert_snapshot_is_writable(self, snapshot_subvol: str) -> AssertionResult:
         """verify a snapshot subvolume is writable (not read-only)."""
         # check btrfs property ro flag
-        code, stdout, _ = self._run_cmd(f"btrfs property get {snapshot_subvol} ro")
+        _code, stdout, _ = self._run_cmd(f"btrfs property get {snapshot_subvol} ro")
 
         is_writable = "ro=false" in stdout.lower()
 
@@ -958,7 +856,7 @@ class InstallationAssertions:
 
     def assert_secure_boot_enrolled(self) -> AssertionResult:
         """verify secure boot is in enrolled mode (not setup mode)."""
-        code, stdout, _ = self._run_cmd("sbctl status")
+        _code, stdout, _ = self._run_cmd("sbctl status")
 
         # check for setup mode disabled (keys enrolled)
         # sbctl shows "Setup Mode:    ✓ Disabled" when keys are enrolled
@@ -977,7 +875,7 @@ class InstallationAssertions:
 
     def assert_secure_boot_enabled(self) -> AssertionResult:
         """verify secure boot is enabled and enforcing."""
-        code, stdout, _ = self._run_cmd("sbctl status")
+        _code, stdout, _ = self._run_cmd("sbctl status")
 
         # sbctl shows "Secure Boot:   ✓ Enabled" when secure boot is enabled
         sb_enabled = False
@@ -994,21 +892,27 @@ class InstallationAssertions:
         )
 
     def assert_pk_enrolled(self) -> AssertionResult:
-        """verify Platform Key (PK) is enrolled."""
-        code, stdout, _ = self._run_cmd("sbctl status --json 2>/dev/null || sbctl status")
+        """verify Platform Key (PK) is enrolled via sbctl and efivar."""
+        # check via sbctl first
+        sbctl_code, sbctl_out, _ = self._run_cmd("sbctl status")
+        sbctl_pk = False
+        if sbctl_code == 0:
+            for line in sbctl_out.split("\n"):
+                if "setup mode" in line.lower():
+                    sbctl_pk = "disabled" in line.lower()
+                    break
 
-        pk_enrolled = "pk" in stdout.lower() or "platform key" in stdout.lower()
+        # also check efivar directly
+        efivar_code, efivar_out, _ = self._run_cmd("ls /sys/firmware/efi/efivars/PK-* 2>/dev/null")
+        efivar_pk = efivar_code == 0
 
-        # fallback: check efivar directly
-        if not pk_enrolled:
-            code2, out2, _ = self._run_cmd("ls /sys/firmware/efi/efivars/PK-* 2>/dev/null")
-            pk_enrolled = code2 == 0
+        details = f"sbctl_setup_mode_disabled={sbctl_pk}, efivar_pk_exists={efivar_pk}\nsbctl: {sbctl_out}\nefivar: {efivar_out}"
 
         return self._assert(
             "pk_enrolled",
-            pk_enrolled,
-            "expected Platform Key (PK) to be enrolled",
-            stdout,
+            sbctl_pk and efivar_pk,
+            "expected Platform Key (PK) to be enrolled (both sbctl and efivar)",
+            details,
         )
 
     def assert_kek_enrolled(self) -> AssertionResult:
@@ -1035,7 +939,7 @@ class InstallationAssertions:
 
     def assert_sbctl_verify_all(self, efi_path: str = "/efi") -> AssertionResult:
         """verify all boot files pass sbctl verification."""
-        code, stdout, stderr = self._run_cmd(f"sbctl verify")
+        code, stdout, stderr = self._run_cmd("sbctl verify")
 
         # sbctl verify returns 0 if all files are properly signed
         all_verified = code == 0
@@ -1047,24 +951,6 @@ class InstallationAssertions:
             stdout if stdout else stderr,
         )
 
-    def assert_unsigned_boot_blocked(self, unsigned_file: str) -> AssertionResult:
-        """verify an unsigned EFI file would be blocked by secure boot.
-
-        this checks that sbctl verify reports the file as not signed,
-        which would mean secure boot would block it.
-        """
-        code, stdout, _ = self._run_cmd(f"sbctl verify {unsigned_file}")
-
-        # non-zero exit or "not signed" in output means it would be blocked
-        would_block = code != 0 or "not signed" in stdout.lower()
-
-        return self._assert(
-            f"unsigned_blocked_{unsigned_file}",
-            would_block,
-            f"expected unsigned file {unsigned_file} to be blocked by secure boot",
-            stdout,
-        )
-
     def assert_live_iso_would_be_blocked(self) -> AssertionResult:
         """verify unsigned live ISO EFI loader would be blocked by secure boot.
 
@@ -1074,7 +960,7 @@ class InstallationAssertions:
         confirming setup mode is disabled (keys are enrolled).
         """
         # verify setup mode is off (keys enrolled)
-        code, stdout, _ = self._run_cmd("sbctl status")
+        _code, stdout, _ = self._run_cmd("sbctl status")
 
         setup_mode_disabled = "setup mode" in stdout.lower() and "disabled" in stdout.lower()
         secure_boot_enabled = "secure boot" in stdout.lower() and "enabled" in stdout.lower()
@@ -1099,10 +985,11 @@ class InstallationAssertions:
 
     def assert_secure_boot_keys_exist(self) -> AssertionResult:
         """verify secure boot key files exist in the expected locations."""
+        # sbctl uses /var/lib/sbctl/keys as the default path
         key_files = [
-            "/usr/share/secureboot/keys/PK/PK.key",
-            "/usr/share/secureboot/keys/KEK/KEK.key",
-            "/usr/share/secureboot/keys/db/db.key",
+            "/var/lib/sbctl/keys/PK/PK.key",
+            "/var/lib/sbctl/keys/KEK/KEK.key",
+            "/var/lib/sbctl/keys/db/db.key",
         ]
 
         missing = []
@@ -1117,144 +1004,241 @@ class InstallationAssertions:
             f"missing secure boot key files: {missing}" if missing else "all key files exist",
         )
 
-    # =========================================================================
-    # composite secure boot verification
-    # =========================================================================
+    def assert_usb_efi_files_signed(self, mount_point: str = "/mnt/usb-efi") -> AssertionResult:
+        """verify all EFI binaries on the USB are signed with secure boot keys.
 
-    def verify_secure_boot_complete(self, efi_path: str = "/efi") -> list[AssertionResult]:
-        """run all secure boot assertions."""
-        self.assert_secure_boot_keys_created()
-        self.assert_secure_boot_keys_exist()
-        self.assert_bootloader_signed(efi_path)
-        self.assert_all_ukis_signed(efi_path)
-        self.assert_sbctl_verify_all(efi_path)
-
-        return self._results
-
-    def verify_secure_boot_enrolled_and_enforcing(
-        self,
-        efi_path: str = "/efi",
-    ) -> list[AssertionResult]:
+        checks the bootloader, recovery ISO EFI, and systemd-boot binary
+        using sbctl verify from the chroot.
         """
-        stricter check that verifies keys are enrolled
-        and secure boot is actually enforcing (not just configured)
-        """
-        self.assert_secure_boot_enrolled()
-        self.assert_secure_boot_enabled()
-        self.assert_pk_enrolled()
-        self.assert_kek_enrolled()
-        self.assert_db_enrolled()
-        self.assert_sbctl_verify_all(efi_path)
+        efi_files = [
+            f"{mount_point}/EFI/BOOT/BOOTX64.EFI",
+            f"{mount_point}/EFI/systemd/systemd-bootx64.efi",
+            f"{mount_point}/EFI/recovery/archiso.efi",
+        ]
 
-        return self._results
+        unsigned = []
+        for efi_file in efi_files:
+            code, _, _ = self._run_cmd(f"test -f {efi_file}")
+            if code != 0:
+                continue  # file doesn't exist, skip
 
-    # =========================================================================
-    # composite snapshot UKI verification
-    # =========================================================================
+            # convert host path to chroot-relative path for sbctl verify
+            chroot_path = efi_file.replace("/mnt", "", 1)
+            code, stdout, _ = self._run_cmd(f"arch-chroot /mnt sbctl verify {chroot_path} 2>&1")
+            if code != 0 or "not signed" in stdout.lower():
+                unsigned.append(efi_file)
 
-    def verify_bootable_snapshots_complete(
-        self,
-        config_name: str = "root",
-    ) -> list[AssertionResult]:
-        """run all bootable snapshot assertions."""
-        self.assert_snapper_config_exists(config_name)
-        self.assert_manage_snapshot_ukis_exists()
-        self.assert_snapshot_hooks_deployed()
-        self.assert_snapshot_ukis_list()
-
-        return self._results
+        return self._assert(
+            "usb_efi_files_signed",
+            len(unsigned) == 0,
+            f"unsigned USB EFI files: {unsigned}" if unsigned else "all USB EFI files signed",
+        )
 
     # =========================================================================
-    # composite assertions (run multiple related checks)
+    # USB boot drive assertions
     # =========================================================================
 
-    def verify_storage_complete(
-        self,
-        device: str = "/dev/vda",
-        efi_size_mb: int = 2048,
-        expected_subvols: Optional[list[str]] = None,
-    ) -> list[AssertionResult]:
-        """run all storage-related assertions."""
-        self.assert_partitions_exist(device)
-        self.assert_efi_partition_type(device)
-        self.assert_root_partition_type(device)
-        self.assert_efi_partition_size_mib(efi_size_mb, device)
-        self.assert_luks_volume_active()
-        self.assert_luks_type("LUKS2")
+    def assert_usb_drive_partitioned(self, device: str = "/dev/vdb") -> AssertionResult:
+        """verify the USB drive has the expected 4-partition layout."""
+        _code, stdout, _ = self._run_cmd(f"lsblk -nlo TYPE {device}")
+        part_count = stdout.strip().count("part")
 
-        if expected_subvols:
-            self.assert_btrfs_subvolumes_exist(expected_subvols)
+        return self._assert(
+            "usb_drive_partitioned",
+            part_count >= 4,
+            f"expected 4 partitions on {device}, found {part_count}",
+            stdout,
+        )
 
-        return self._results
+    def assert_usb_efi_partition_has_bootloader(
+        self, mount_point: str = "/mnt/usb-efi"
+    ) -> AssertionResult:
+        """verify USB EFI partition contains a bootloader."""
+        code, stdout, _ = self._run_cmd(f"ls {mount_point}/EFI/BOOT/BOOTX64.EFI 2>/dev/null")
+        has_bootloader = code == 0
 
-    def verify_boot_complete(
-        self,
-        expected_timeout: int = 20,
-        expected_kernels: Optional[list[str]] = None,
-        efi_path: str = "/efi",
-    ) -> list[AssertionResult]:
-        """run all boot-related assertions."""
-        self.assert_systemd_boot_installed(efi_path)
-        self.assert_loader_conf_exists(efi_path)
-        self.assert_loader_timeout(expected_timeout, efi_path)
-        self.assert_loader_editor_disabled(efi_path)
-        self.assert_uki_directory_exists(efi_path)
+        return self._assert(
+            "usb_efi_has_bootloader",
+            has_bootloader,
+            f"expected BOOTX64.EFI in {mount_point}/EFI/BOOT/",
+            stdout,
+        )
 
-        if expected_kernels:
-            self.assert_uki_files_exist(expected_kernels, efi_path)
+    def assert_usb_efi_partition_has_uki_files(
+        self, mount_point: str = "/mnt/usb-efi"
+    ) -> AssertionResult:
+        """verify USB EFI partition contains .efi UKI files."""
+        code, stdout, _ = self._run_cmd(f"find {mount_point}/EFI/Linux -name '*.efi' 2>/dev/null")
+        has_ukis = code == 0 and ".efi" in stdout
 
-        return self._results
+        return self._assert(
+            "usb_efi_has_ukis",
+            has_ukis,
+            f"expected .efi UKI files in {mount_point}/EFI/Linux/",
+            stdout,
+        )
 
-    def verify_system_config_complete(
-        self,
-        hostname: str,
-        timezone: str,
-        locale: str,
-        keymap: str,
-        username: str,
-        user_groups: list[str],
-    ) -> list[AssertionResult]:
-        """run all system configuration assertions."""
-        self.assert_hostname(hostname)
-        self.assert_timezone(timezone)
-        self.assert_locale(locale)
-        self.assert_keymap(keymap)
-        self.assert_user_exists(username)
-        self.assert_user_in_groups(username, user_groups)
+    def assert_usb_efi_partition_has_loader_conf(
+        self, mount_point: str = "/mnt/usb-efi"
+    ) -> AssertionResult:
+        """verify USB EFI partition contains loader.conf."""
+        code, stdout, _ = self._run_cmd(f"cat {mount_point}/loader/loader.conf 2>/dev/null")
+        has_loader = code == 0 and len(stdout.strip()) > 0
 
-        return self._results
+        return self._assert(
+            "usb_efi_has_loader_conf",
+            has_loader,
+            f"expected loader.conf in {mount_point}/loader/",
+            stdout,
+        )
 
-    def verify_all(
-        self,
-        device: str = "/dev/vda",
-        efi_size_mb: int = 2048,
-        efi_path: str = "/efi",
-        expected_subvols: Optional[list[str]] = None,
-        expected_kernels: Optional[list[str]] = None,
-        expected_timeout: int = 20,
-        hostname: Optional[str] = None,
-        timezone: Optional[str] = None,
-        locale: Optional[str] = None,
-        keymap: Optional[str] = None,
-        username: Optional[str] = None,
-        user_groups: Optional[list[str]] = None,
-        verify_secure_boot: bool = True,
-    ) -> list[AssertionResult]:
-        """run comprehensive verification of entire installation."""
-        self.verify_storage_complete(device, efi_size_mb, expected_subvols)
-        self.verify_boot_complete(expected_timeout, expected_kernels, efi_path)
+    def assert_usb_header_partition_has_luks_header(
+        self, mount_point: str = "/mnt/usb-header"
+    ) -> AssertionResult:
+        """verify USB header partition contains the detached LUKS header."""
+        code, stdout, _ = self._run_cmd(f"ls -la {mount_point}/luks_header.img 2>/dev/null")
+        has_header = code == 0 and "luks_header.img" in stdout
 
-        if verify_secure_boot:
-            self.verify_secure_boot_complete(efi_path)
+        return self._assert(
+            "usb_header_has_luks_header",
+            has_header,
+            f"expected luks_header.img in {mount_point}/",
+            stdout,
+        )
 
-        if all([hostname, timezone, locale, keymap, username]):
-            self.verify_system_config_complete(
-                hostname=hostname,  # type: ignore
-                timezone=timezone,  # type: ignore
-                locale=locale,  # type: ignore
-                keymap=keymap,  # type: ignore
-                username=username,  # type: ignore
-                user_groups=user_groups or [],
-            )
+    def assert_usb_recovery_entry_exists(
+        self, mount_point: str = "/mnt/usb-efi"
+    ) -> AssertionResult:
+        """verify systemd-boot entry for recovery ISO exists."""
+        code, stdout, _ = self._run_cmd(
+            f"cat {mount_point}/loader/entries/archiso-recovery.conf 2>/dev/null"
+        )
+        has_entry = code == 0 and "recovery" in stdout.lower()
 
-        return self._results
+        return self._assert(
+            "usb_recovery_entry_exists",
+            has_entry,
+            f"expected archiso-recovery.conf in {mount_point}/loader/entries/",
+            stdout,
+        )
+
+    def assert_main_disk_has_no_luks_header(self, partition: str = "/dev/vda2") -> AssertionResult:
+        """verify the main disk partition has no visible LUKS header."""
+        code, stdout, _ = self._run_cmd(f"cryptsetup isLuks {partition} 2>&1", timeout=30)
+        # after header wipe, isLuks should fail (exit code != 0)
+        no_header = code != 0
+
+        return self._assert(
+            "main_disk_no_luks_header",
+            no_header,
+            f"main disk {partition} should not have a visible LUKS header",
+            stdout,
+        )
+
+    def assert_internal_efi_has_no_boot_files(self, efi_path: str = "/efi") -> AssertionResult:
+        """verify the internal EFI partition was wiped (no UKIs or bootloader)."""
+        code, stdout, _ = self._run_cmd(f"find {efi_path}/EFI -name '*.efi' 2>/dev/null | wc -l")
+        efi_count = int(stdout.strip()) if code == 0 and stdout.strip().isdigit() else -1
+
+        return self._assert(
+            "internal_efi_no_boot_files",
+            efi_count == 0,
+            f"expected no .efi files in internal {efi_path}/EFI, found {efi_count}",
+            stdout,
+        )
+
+    def assert_usb_backup_partition_exists(self, device: str = "/dev/vdb") -> AssertionResult:
+        """verify the USB backup partition (partition 4) exists and is ext4."""
+        partition = f"{device}4"
+        code, stdout, _ = self._run_cmd(f"lsblk -nlo FSTYPE {partition} 2>/dev/null")
+        is_ext4 = code == 0 and "ext4" in stdout
+
+        return self._assert(
+            "usb_backup_partition_exists",
+            is_ext4,
+            f"expected ext4 backup partition at {partition}",
+            stdout,
+        )
+
+    def assert_usb_backup_partition_label(
+        self, device: str = "/dev/vdb", expected_label: str = "USBBACKUP"
+    ) -> AssertionResult:
+        """verify the USB backup partition has the expected label."""
+        partition = f"{device}4"
+        code, stdout, _ = self._run_cmd(f"lsblk -nlo LABEL {partition} 2>/dev/null")
+        has_label = code == 0 and expected_label in stdout
+
+        return self._assert(
+            "usb_backup_partition_label",
+            has_label,
+            f"expected label '{expected_label}' on {partition}, found '{stdout.strip()}'",
+            stdout,
+        )
+
+    def assert_usb_backup_has_manifest(
+        self, mount_point: str = "/mnt/usb-backup"
+    ) -> AssertionResult:
+        """verify the USB backup partition contains a backup manifest."""
+        code, stdout, _ = self._run_cmd(f"cat {mount_point}/manifest.yaml 2>/dev/null")
+        has_manifest = code == 0 and "timestamp" in stdout
+
+        return self._assert(
+            "usb_backup_has_manifest",
+            has_manifest,
+            f"expected manifest.yaml in {mount_point}/",
+            stdout,
+        )
+
+    def assert_usb_backup_has_package_catalog(
+        self, mount_point: str = "/mnt/usb-backup"
+    ) -> AssertionResult:
+        """verify the USB backup partition contains a package catalog."""
+        code, stdout, _ = self._run_cmd(
+            f"cat {mount_point}/config/package_catalog.yaml 2>/dev/null"
+        )
+        has_catalog = code == 0 and "cataloged" in stdout
+
+        return self._assert(
+            "usb_backup_has_package_catalog",
+            has_catalog,
+            f"expected package_catalog.yaml in {mount_point}/config/",
+            stdout,
+        )
+
+    def assert_usb_backup_has_config(self, mount_point: str = "/mnt/usb-backup") -> AssertionResult:
+        """verify the USB backup partition contains an exported config.yaml."""
+        code, stdout, _ = self._run_cmd(f"cat {mount_point}/config/config.yaml 2>/dev/null")
+        has_config = code == 0 and "system:" in stdout
+
+        return self._assert(
+            "usb_backup_has_config",
+            has_config,
+            f"expected config.yaml in {mount_point}/config/",
+            stdout,
+        )
+
+    def assert_usb_backup_has_category_dir(
+        self, category: str, mount_point: str = "/mnt/usb-backup"
+    ) -> AssertionResult:
+        """verify the USB backup partition has a specific category directory."""
+        code, stdout, _ = self._run_cmd(f"test -d {mount_point}/{category} && echo 'exists'")
+        has_dir = code == 0 and "exists" in stdout
+
+        return self._assert(
+            f"usb_backup_has_{category}_dir",
+            has_dir,
+            f"expected {category}/ directory in {mount_point}/",
+            stdout,
+        )
+
+    def assert_kernel_cmdline_has_detached_header(self) -> AssertionResult:
+        """verify kernel cmdline references a detached LUKS header."""
+        _code, stdout, _ = self._run_cmd("cat /proc/cmdline")
+        has_header_ref = "header=/luks_header.img" in stdout
+
+        return self._assert(
+            "cmdline_detached_header",
+            has_header_ref,
+            "expected rd.luks.options with header= in kernel cmdline",
+            stdout,
+        )

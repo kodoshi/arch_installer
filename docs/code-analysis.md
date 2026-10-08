@@ -1,5 +1,7 @@
 # DALI - Code Structure Analysis
 
+> **Historical.** This analysis describes the code before the October 2026 restructure (GUI, `ArchInstaller`, `steps/`, `RuntimeConfig`), most of which no longer exists. See [functional-map.md](functional-map.md) for the current structure.
+
 ## Class Descriptions and Responsibilities
 
 ### Entry Points

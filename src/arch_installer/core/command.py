@@ -1,9 +1,12 @@
+import logging
 import subprocess
 from abc import ABC, abstractmethod
 from collections.abc import Mapping
 from dataclasses import dataclass
 
 from arch_installer.errors import CommandError
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -23,13 +26,6 @@ class CommandExecutionResult:
 
 
 class CommandRunner(ABC):
-    """
-    interface for executing system commands
-
-    this abstraction allows for dependency injection in tests,
-    enabling the use of fake/mock implementations without ugly patches
-    """
-
     @abstractmethod
     def run(
         self,
@@ -41,9 +37,6 @@ class CommandRunner(ABC):
         work_dir: str | None = None,
         input_data: str | None = None,
     ) -> CommandExecutionResult:
-        """
-        execute a command and return the result
-        """
         pass
 
     @abstractmethod
@@ -57,18 +50,10 @@ class CommandRunner(ABC):
         env_variables: Mapping[str, str] | None = None,
         input_data: str | None = None,
     ) -> CommandExecutionResult:
-        """
-        execute a command in a chroot environment
-        """
         pass
 
 
 class SystemCommandRunner(CommandRunner):
-    """CommandRunner implementation using subprocess"""
-
-    def __init__(self, verbose: bool = False) -> None:
-        self.verbose = verbose
-
     def run(
         self,
         command: str | list[str],
@@ -79,15 +64,10 @@ class SystemCommandRunner(CommandRunner):
         work_dir: str | None = None,
         input_data: str | None = None,
     ) -> CommandExecutionResult:
-        if isinstance(command, str):
-            shell = True
-            cmd_str = command
-        else:
-            shell = False
-            cmd_str = " ".join(command)
-
-        if self.verbose:
-            print(f">>>>> {cmd_str}")
+        shell = isinstance(command, str)
+        cmd_str = command if isinstance(command, str) else " ".join(command)
+        # stdin is never logged: it carries passwords and file contents
+        logger.debug("$ %s", cmd_str)
 
         try:
             result = subprocess.run(
@@ -113,12 +93,10 @@ class SystemCommandRunner(CommandRunner):
             stdout=result.stdout if capture_output else "",
             stderr=result.stderr if capture_output else "",
         )
-
-        if self.verbose and capture_output:
-            if cmd_result.stdout:
-                print(cmd_result.stdout)
-            if cmd_result.stderr:
-                print(f"stderr: {cmd_result.stderr}")
+        if cmd_result.stdout:
+            logger.debug("%s", cmd_result.stdout.rstrip())
+        if cmd_result.stderr:
+            logger.debug("stderr: %s", cmd_result.stderr.rstrip())
 
         if raise_on_nonzero_exit and not cmd_result.success:
             raise CommandError(
@@ -140,14 +118,9 @@ class SystemCommandRunner(CommandRunner):
         env_variables: Mapping[str, str] | None = None,
         input_data: str | None = None,
     ) -> CommandExecutionResult:
-        if isinstance(command, list):
-            cmd_str = " ".join(command)
-        else:
-            cmd_str = command
-
-        chroot_cmd = f"arch-chroot {chroot_path} {cmd_str}"
+        cmd_str = command if isinstance(command, str) else " ".join(command)
         return self.run(
-            chroot_cmd,
+            f"arch-chroot {chroot_path} {cmd_str}",
             raise_on_nonzero_exit=raise_on_nonzero_exit,
             capture_output=capture_output,
             env_variables=env_variables,

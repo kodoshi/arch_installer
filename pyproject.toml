@@ -11,8 +11,9 @@ pyyaml = "^6.0.3"
 cryptography = "^46.0.3"
 
 [tool.poetry.scripts]
-arch-installer = "arch_installer.installer:main"
-arch-installer-gui = "arch_installer.gui:main"
+arch-installer = "arch_installer.cli:main"
+usb-init = "arch_installer.cli:usb_init"
+usb-backup = "arch_installer.cli:usb_backup"
 
 [build-system]
 requires = ["poetry-core>=2.0.0,<3.0.0"]
@@ -24,6 +25,30 @@ pytest-cov = "^7.0.0"
 docker = "^7.1.0"
 pytest-xdist = "^3.8.0"
 pytest-timeout = "^2.4.0"
+ruff = "^0.16.10"
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes: unused imports and names, undefined names
+    "I",   # import sorting
+    "N",   # pep8 naming
+    "B",   # bugbear: likely bugs and design problems
+    "UP",  # pyupgrade: modern syntax for the target python
+    "SIM", # simplifications
+    "RUF", # ruff specific checks
+]
+# the formatter owns line length; long string literals are left alone
+ignore = ["E501"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["arch_installer", "tests"]
 
 [tool.pytest.ini_options]
 # IMPORTANT: E2E docker tests MUST NOT run in parallel

@@ -1,194 +1,92 @@
-import pytest
+from dataclasses import replace
 
-from arch_installer.steps.boot import (
-    BootloaderSetup,
-    KernelCommandLineBuilder,
-    UkiGenerator,
+from arch_installer.config.models import (
+    SwapConfig,
+    UkiVariantConfig,
+    UsbBootConfig,
 )
+from arch_installer.executors.boot import (
+    kernel_cmdline,
+    kernel_preset,
+    loader_conf,
+    mkinitcpio_conf,
+    uki_path,
+    uki_variants,
+)
+from tests.unit.conftest import build_config
 
 
-class TestKernelCommandLineBuilder:
-    @pytest.fixture
-    def builder(self, minimal_config, runtime_state, fake_runner):
-        return KernelCommandLineBuilder(minimal_config, runtime_state, fake_runner)
+class TestKernelCmdline:
+    def test_names_the_luks_mapping_and_encrypted_root(self):
+        cmdline = kernel_cmdline(build_config(), "uuid-1234", None)
+        assert "rd.luks.name=uuid-1234=cryptroot" in cmdline
+        assert "root=/dev/mapper/cryptroot" in cmdline
 
-    def test_should_include_rootflags_when_building_cmdline(self, builder):
-        cmdline = builder.build(luks_uuid="test-uuid-1234")
-        assert "rootflags=" in cmdline or "subvol=" in cmdline
+    def test_includes_quiet_and_hardening_options(self):
+        cmdline = kernel_cmdline(build_config(), "uuid-1234", None)
+        assert "quiet" in cmdline
+        assert "lockdown=integrity" in cmdline
+        assert "pti=on" in cmdline
 
-    def test_should_include_cryptdevice_when_using_luks(
-        self, minimal_config, runtime_state, fake_runner
-    ):
-        runtime_state.root_partition = "/dev/loop0p2"
-        builder = KernelCommandLineBuilder(minimal_config, runtime_state, fake_runner)
-
-        cmdline = builder.build(luks_uuid="test-uuid-1234")
-        assert "rd.luks.name" in cmdline
-
-    def test_should_include_quiet_when_configured(self, builder, minimal_config):
-        if minimal_config.boot.cmdline.quiet:
-            cmdline = builder.build(luks_uuid="test-uuid-1234")
-            assert "quiet" in cmdline
-
-    def test_should_include_hardening_options_when_building_cmdline(self, builder):
-        cmdline = builder.build(luks_uuid="test-uuid-1234")
-
-        hardening_present = any(
-            option in cmdline for option in ["lockdown=", "pti=", "spec_store_bypass_disable="]
+    def test_omits_hardening_option_left_empty(self):
+        config = build_config()
+        hardening = replace(config.boot.cmdline.hardening, lockdown="", iommu="")
+        config = replace(
+            config,
+            boot=replace(config.boot, cmdline=replace(config.boot.cmdline, hardening=hardening)),
         )
-        assert hardening_present
+        cmdline = kernel_cmdline(config, "uuid-1234", None)
+        assert "lockdown=" not in cmdline
+        assert "iommu=force" in cmdline
 
-    def test_should_set_rootfstype_when_building_cmdline(self, builder):
-        cmdline = builder.build(luks_uuid="test-uuid-1234")
-        assert "rootflags=" in cmdline
+    def test_detached_header_adds_the_usb_header_option(self):
+        config = build_config(
+            usb_boot=UsbBootConfig(enabled=True, device="/dev/sdb", detached_luks_header=True)
+        )
+        cmdline = kernel_cmdline(config, "uuid-1234", None)
+        assert "header=/luks_header.img:LABEL=LUKSHEADER" in cmdline
 
-    def test_should_append_extra_params_when_variant_specified(
-        self, minimal_config, runtime_state, fake_runner
-    ):
-        builder = KernelCommandLineBuilder(minimal_config, runtime_state, fake_runner)
-
-        variant_cmdline = builder.build(luks_uuid="test-uuid-1234", extra_params="debug")
-
-        assert "debug" in variant_cmdline
-        assert isinstance(variant_cmdline, str)
-
-    def test_should_include_resume_params_when_hibernation_enabled(
-        self, minimal_config, runtime_state, fake_runner, tmp_path
-    ):
-        runtime_state.enable_hibernation = True
-        runtime_state.skip_swap = False
-        runtime_state.target_root = tmp_path
-
-        swap_dir = tmp_path / ".swap"
-        swap_dir.mkdir(parents=True)
-        swap_file = swap_dir / "swapfile"
-        swap_file.write_bytes(b"\0" * 1024)
-
-        fake_runner.set_response("btrfs", stdout="12345", exit_code=0)
-
-        builder = KernelCommandLineBuilder(minimal_config, runtime_state, fake_runner)
-        cmdline = builder.build(luks_uuid="test-uuid-1234")
-
+    def test_resume_is_added_only_with_hibernation(self):
+        swap_on = SwapConfig(enabled=True, size_mb=1024, hibernation=True)
+        config = build_config(storage=replace(build_config().storage, swap=swap_on))
+        cmdline = kernel_cmdline(config, "uuid-1234", "98765")
         assert "resume=/dev/mapper/cryptroot" in cmdline
-        assert "resume_offset=12345" in cmdline
+        assert "resume_offset=98765" in cmdline
 
-    def test_should_not_include_resume_params_when_hibernation_disabled(
-        self, minimal_config, runtime_state, fake_runner
-    ):
-        runtime_state.enable_hibernation = False
-
-        builder = KernelCommandLineBuilder(minimal_config, runtime_state, fake_runner)
-        cmdline = builder.build(luks_uuid="test-uuid-1234")
-
+    def test_no_resume_without_hibernation(self):
+        cmdline = kernel_cmdline(build_config(), "uuid-1234", None)
         assert "resume=" not in cmdline
-        assert "resume_offset=" not in cmdline
 
 
-class TestUkiGenerator:
-    @pytest.fixture
-    def generator(self, minimal_config, runtime_state, fake_runner):
-        runtime_state.root_partition = "/dev/loop0p2"
-        return UkiGenerator(minimal_config, runtime_state, fake_runner)
+class TestUkiVariants:
+    def test_default_variant_always_present(self):
+        variants = uki_variants(build_config())
+        assert any(variant.suffix == "default" for variant in variants)
 
-    def test_should_create_mkinitcpio_conf_when_configuring(self, generator, fake_runner):
-        fake_runner.set_response("mkdir", exit_code=0)
-        fake_runner.set_response("tee", exit_code=0)
-        fake_runner.set_response("cat", exit_code=0)
+    def test_configured_variants_are_added(self):
+        config = build_config()
+        config = replace(
+            config, boot=replace(config.boot, variants=(UkiVariantConfig("no-dc", "amdgpu.dc=0"),))
+        )
+        suffixes = [variant.suffix for variant in uki_variants(config)]
+        assert suffixes == ["default", "no-dc"]
 
-        generator._configure_mkinitcpio()
-
-        commands = fake_runner.get_commands()
-        assert len(commands) > 0
-
-    def test_should_raise_error_when_luks_uuid_missing(self, generator, fake_runner):
-        fake_runner.set_response("blkid", exit_code=1, stderr="not found")
-
-        with pytest.raises(RuntimeError, match="LUKS partition UUID"):
-            generator.generate_ukis()
-
-    def test_should_generate_ukis_when_valid_uuid_provided(self, generator, fake_runner):
-        fake_runner.set_response("blkid", stdout='UUID="test-uuid-1234"')
-        fake_runner.set_response("mkdir", exit_code=0)
-        fake_runner.set_response("tee", exit_code=0)
-        fake_runner.set_response("cat", exit_code=0)
-        fake_runner.set_response("mkinitcpio", exit_code=0)
-
-        generator.generate_ukis()
-
-        fake_runner.assert_command_called("mkinitcpio")
+    def test_uki_path_encodes_kernel_and_variant(self):
+        path = uki_path("linux", UkiVariantConfig("default"))
+        assert path.endswith("arch-linux-default.efi")
 
 
-class TestBootloaderSetup:
-    @pytest.fixture
-    def setup(self, minimal_config, runtime_state, fake_runner):
-        return BootloaderSetup(minimal_config, runtime_state, fake_runner)
+class TestBootTemplates:
+    def test_mkinitcpio_conf_lists_hooks_and_modules(self):
+        conf = mkinitcpio_conf(("base", "systemd"), ("nvidia",))
+        assert "HOOKS=(base systemd)" in conf
+        assert "MODULES=(nvidia)" in conf
 
-    def test_should_call_bootctl_install_when_setting_up(self, setup, fake_runner):
-        fake_runner.set_response("bootctl", exit_code=0)
-        fake_runner.set_response("mkdir", exit_code=0)
-        fake_runner.set_response("tee", exit_code=0)
-        fake_runner.set_response("cat", exit_code=0)
-        fake_runner.set_response("test", exit_code=0)
+    def test_loader_conf_renders_timeout_and_editor(self):
+        conf = loader_conf(build_config().boot.loader)
+        assert "timeout 20" in conf
+        assert "editor no" in conf
 
-        setup.setup_bootloader()
-
-        fake_runner.assert_command_called("bootctl")
-
-    def test_should_create_loader_conf_when_setting_up(self, setup, fake_runner):
-        fake_runner.set_response("bootctl", exit_code=0)
-        fake_runner.set_response("mkdir", exit_code=0)
-        fake_runner.set_response("tee", exit_code=0)
-        fake_runner.set_response("cat", exit_code=0)
-        fake_runner.set_response("test", exit_code=0)
-
-        setup.setup_bootloader()
-
-        commands = fake_runner.get_commands()
-        assert len(commands) > 0
-
-    def test_should_call_secure_boot_signing_when_setting_up(
-        self, minimal_config, runtime_state, fake_runner
-    ):
-        fake_runner.set_response("bootctl", exit_code=0)
-        fake_runner.set_response("cat", exit_code=0)
-        fake_runner.set_response("test", exit_code=0)
-        fake_runner.set_response("sbctl", exit_code=0)
-
-        setup = BootloaderSetup(minimal_config, runtime_state, fake_runner)
-        setup.setup_bootloader()
-
-        fake_runner.assert_command_called("bootctl")
-
-    def test_should_use_configured_timeout_when_setting_up(
-        self, minimal_config, runtime_state, fake_runner
-    ):
-        fake_runner.set_response("bootctl", exit_code=0)
-        fake_runner.set_response("cat", exit_code=0)
-        fake_runner.set_response("test", exit_code=0)
-
-        setup = BootloaderSetup(minimal_config, runtime_state, fake_runner)
-        setup.setup_bootloader()
-
-        assert minimal_config.boot.loader.timeout == 5
-
-
-class TestMkinitcpioHooks:
-    @pytest.fixture
-    def generator(self, minimal_config, runtime_state, fake_runner):
-        return UkiGenerator(minimal_config, runtime_state, fake_runner)
-
-    def test_should_use_systemd_hooks_when_configured(self, generator, minimal_config):
-        hooks = minimal_config.boot.hooks
-
-        assert "systemd" in hooks
-        assert "sd-encrypt" in hooks
-
-    def test_should_include_encrypt_hook_when_using_luks(self, generator, minimal_config):
-        hooks = minimal_config.boot.hooks
-
-        assert "sd-encrypt" in hooks or "encrypt" in hooks
-
-    def test_should_include_filesystems_hook_when_using_btrfs(self, generator, minimal_config):
-        hooks = minimal_config.boot.hooks
-
-        assert "filesystems" in hooks
+    def test_kernel_preset_references_the_uki_path(self):
+        preset = kernel_preset("linux", (UkiVariantConfig("default"),))
+        assert "arch-linux-default.efi" in preset

@@ -1,86 +1,67 @@
-import pytest
+from dataclasses import replace
 
-from arch_installer.steps.system import SystemConfigurator
+from arch_installer.config.models import LocaleConfig, UserConfig
+from arch_installer.executors.system import (
+    SystemExecutor,
+    hosts_file,
+    locale_conf,
+    locales_to_generate,
+)
+from tests.unit.conftest import build_config
 
 
-class TestSystemConfigurator:
-    @pytest.fixture
-    def configurator(self, minimal_config, runtime_state, fake_runner):
-        return SystemConfigurator(minimal_config, runtime_state, fake_runner)
+class TestSystemTemplates:
+    def test_hosts_file_maps_the_hostname(self):
+        content = hosts_file("workstation")
+        assert "127.0.1.1   workstation.localdomain workstation" in content
+        assert "localhost" in content
 
-    def test_should_set_timezone_when_configuring_timezone(self, configurator, fake_runner):
-        fake_runner.set_default_response(exit_code=0)
+    def test_locale_conf_sets_lang_and_only_differing_categories(self):
+        locale = LocaleConfig(monetary="fr_FR.UTF-8")
+        content = locale_conf(locale)
+        assert "LANG=en_US.UTF-8" in content
+        assert "LC_MONETARY=fr_FR.UTF-8" in content
+        # a category equal to LANG is not repeated
+        assert "LC_NUMERIC" not in content
 
-        configurator._configure_timezone()
+    def test_locales_to_generate_is_deduplicated(self):
+        locale = LocaleConfig(monetary="fr_FR.UTF-8", paper="fr_FR.UTF-8")
+        generated = locales_to_generate(locale)
+        assert generated == sorted(set(generated))
+        assert "en_US.UTF-8" in generated
+        assert "fr_FR.UTF-8" in generated
 
-        fake_runner.assert_command_called("ln")
-        fake_runner.assert_command_called("hwclock")
 
-    def test_should_generate_locale_when_configuring_locale(self, configurator, fake_runner):
-        fake_runner.set_default_response(exit_code=0)
+class TestSystemExecutor:
+    def test_writes_hostname_hosts_and_locale(self, fake_runner):
+        SystemExecutor(build_config(), fake_runner).execute()
 
-        configurator._configure_locale()
+        assert fake_runner.written_content("/mnt/etc/hostname") == "testhost\n"
+        assert "testhost" in fake_runner.written_content("/mnt/etc/hosts")
+        assert "LANG=" in fake_runner.written_content("/mnt/etc/locale.conf")
 
-        fake_runner.assert_command_called("locale-gen")
-
-    def test_should_generate_all_distinct_locales_when_configured(self, configurator):
-        from arch_installer.config.models import LocaleConfig
-
-        locale_config = LocaleConfig(
-            language="en_US",
-            encoding="UTF-8",
-            keymap="us",
-            monetary="fr_FR.UTF-8",
-            time_format="fr_FR.UTF-8",
-            numeric="en_US.UTF-8",
-            paper="fr_FR.UTF-8",
+    def test_creates_the_user_with_its_groups_when_absent(self, fake_runner):
+        fake_runner.set_response("id alice", exit_code=1)
+        config = build_config(
+            system=replace(
+                build_config().system, user=UserConfig(name="alice", groups=("wheel", "video"))
+            )
         )
+        SystemExecutor(config, fake_runner).execute()
 
-        locales = configurator._collect_distinct_locales(locale_config)
+        useradd = fake_runner.get_commands("useradd")
+        assert useradd and "-G wheel,video" in useradd[0] and "alice" in useradd[0]
 
-        assert "en_US.UTF-8" in locales
-        assert "fr_FR.UTF-8" in locales
-        assert len(locales) == 2
+    def test_sets_the_user_password_over_stdin(self, fake_runner):
+        fake_runner.set_response("id testuser", exit_code=1)
+        SystemExecutor(build_config(), fake_runner).execute()
 
-    def test_should_set_password_when_creating_user(self, configurator, fake_runner):
-        fake_runner.set_default_response(exit_code=0)
-        fake_runner.set_response("id", exit_code=1)
+        chpasswd = [
+            command for command in fake_runner.recorded_commands if "chpasswd" in command.command
+        ]
+        assert chpasswd and chpasswd[-1].input_data == "testuser:userpassword"
 
-        configurator._create_user()
-
-        fake_runner.assert_command_called("chpasswd")
-
-
-class TestHostsFile:
-    """Tests for /etc/hosts configuration."""
-
-    @pytest.fixture
-    def configurator(self, minimal_config, runtime_state, fake_runner):
-        """Create system configurator."""
-        return SystemConfigurator(minimal_config, runtime_state, fake_runner)
-
-    def test_should_set_hostname_when_configuring_hostname(self, configurator, fake_runner):
-        fake_runner.set_default_response(exit_code=0)
-
-        configurator._configure_hostname()
-
-        commands = fake_runner.get_commands()
-        assert len(commands) > 0
-
-
-class TestSudoConfiguration:
-    """Tests for sudo configuration."""
-
-    @pytest.fixture
-    def configurator(self, minimal_config, runtime_state, fake_runner):
-        """Create system configurator."""
-        return SystemConfigurator(minimal_config, runtime_state, fake_runner)
-
-    def test_should_configure_wheel_group_when_creating_user(self, configurator, fake_runner):
-        fake_runner.set_default_response(exit_code=0)
-        fake_runner.set_response("id", exit_code=1)
-
-        configurator._create_user()
-
-        sed_cmds = fake_runner.get_commands("sed")
-        assert len(sed_cmds) > 0
+    def test_skips_user_creation_when_it_exists(self, fake_runner):
+        fake_runner.set_response("id testuser", exit_code=0)
+        SystemExecutor(build_config(), fake_runner).execute()
+        fake_runner.assert_command_not_called("useradd")

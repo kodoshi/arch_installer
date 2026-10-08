@@ -116,7 +116,7 @@ firewall:
 Or at runtime:
 
 ```bash
-ENABLE_UFW=false make install
+ENABLE_FIREWALL=false make install
 ```
 
 Or after installation:

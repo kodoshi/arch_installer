@@ -82,8 +82,7 @@ storage:
     enabled: true
     size_mb: 1024
     path: /.swap/swapfile
-    hibernation:
-      enabled: true
+    hibernation: true
 
 boot:
   kernels:
@@ -150,8 +149,6 @@ boot:
   enable_snapshot_boot: true
 
 packages:
-  profile: base
-
   base:
     - base
     - base-devel
@@ -238,7 +235,6 @@ packages:
     - sddm
 
 gpu:
-  enabled: true
   vendor: none
   driver: ''
 
@@ -298,8 +294,7 @@ snapper:
       monthly: 3
       yearly: 1
 
-  snap_pac:
-    enabled: true
+  snap_pac: true
 
 firewall:
   enabled: true
@@ -318,10 +313,20 @@ docker:
   data_root: /var/lib/docker
   access_group: docker_access
 
-dotfiles:
-  enabled: false
-  remote_url: ''
-  repo_path: ~/.dotfiles-repo
+notifications:
+  enabled: true
+
+sync:
+  backup_items: []
+
+usb_boot:
+  enabled: true
+  device: /dev/vdb
+  efi_size_mb: 512
+  iso_partition_size_mb: 1024
+  iso_path: /root/archlinux.iso
+  detached_luks_header: true
+  backup_partition_size_mb: 0
 
 secrets:
   luks_password_encrypted: ''

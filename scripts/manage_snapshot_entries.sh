@@ -30,7 +30,13 @@ SNAPSHOTS_DIR="/.snapshots"
 EFI_DIR="/efi"
 UKI_DIR="${EFI_DIR}/EFI/Linux"
 SNAPSHOT_UKI_PREFIX="arch-snapshot"
-DEFAULT_SNAPSHOT_COUNT=7  # keep last 7 bootable snapshots
+# SNAPSHOT_COUNT and PREFERRED_KERNEL come from config.yaml, written by the installer
+SETTINGS_FILE="/etc/default/manage-snapshot-ukis"
+if [ -f "$SETTINGS_FILE" ]; then
+    # shellcheck source=/dev/null
+    . "$SETTINGS_FILE"
+fi
+DEFAULT_SNAPSHOT_COUNT="${SNAPSHOT_COUNT:-7}"
 
 # notification settings
 NOTIFY_ENABLED="${SNAPSHOT_NOTIFY:-true}"
@@ -38,12 +44,6 @@ NOTIFY_ICON_SUCCESS="drive-harddisk"
 NOTIFY_ICON_ERROR="dialog-error"
 NOTIFY_ICON_INFO="dialog-information"
 APP_NAME="Snapshot Manager"
-
-# read configuration
-CFG="config/config.yaml"
-if [ ! -f "$CFG" ]; then
-    CFG="/etc/arch-install/config.yaml"
-fi
 
 # colors for output
 RED='\033[0;31m'
@@ -153,14 +153,10 @@ get_default_kernel() {
         return 0
     fi
 
-    # method 3: Try config file
-    if [ -f "$CFG" ]; then
-        local config_kernel
-        config_kernel=$(yq -r '.boot.kernels[0].package // ""' "$CFG" 2>/dev/null)
-        if [ -n "$config_kernel" ]; then
-            echo "$config_kernel"
-            return 0
-        fi
+    # method 3: the first kernel declared in config.yaml
+    if [ -n "${PREFERRED_KERNEL:-}" ]; then
+        echo "$PREFERRED_KERNEL"
+        return 0
     fi
 
     # method 4: Fallback
@@ -362,10 +358,12 @@ list_snapshots() {
                 local desc=$(echo "$info" | cut -d'|' -f1)
                 local date=$(echo "$info" | cut -d'|' -f2)
                 echo "    [$num] $desc ($date)"
-                ((count++))
+                ((count++)) || true
             fi
         done
-        [ $count -eq 0 ] && echo "    No snapshots found in $SNAPSHOTS_DIR"
+        if [ $count -eq 0 ]; then
+            echo "    No snapshots found in $SNAPSHOTS_DIR"
+        fi
     else
         echo "    Snapshots directory $SNAPSHOTS_DIR not found."
         echo "    Configure snapper for root (/) to enable bootable snapshots."

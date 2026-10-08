@@ -7,6 +7,4 @@ fixtures to avoid side effects and make test dependencies clear.
 import os
 import sys
 
-import pytest
-
 sys.path.append(os.getcwd())

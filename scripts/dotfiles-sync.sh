@@ -591,8 +591,10 @@ push_changes() {
 
     acquire_lock
 
-    # check SSH setup
-    check_ssh || die "SSH setup required for push"
+    # check SSH setup (skip in CI/test environments)
+    if [ "${DOTFILES_SKIP_SSH_CHECK:-false}" != "true" ]; then
+        check_ssh || die "SSH setup required for push"
+    fi
 
     # notify start
     [ "$dry_run" = false ] && notify_start "push"
@@ -723,8 +725,10 @@ pull_changes() {
 
     acquire_lock
 
-    # check SSH setup
-    check_ssh || die "SSH setup required for pull"
+    # check SSH setup (skip in CI/test environments)
+    if [ "${DOTFILES_SKIP_SSH_CHECK:-false}" != "true" ]; then
+        check_ssh || die "SSH setup required for pull"
+    fi
 
     # notify start
     [ "$dry_run" = false ] && notify_start "pull"

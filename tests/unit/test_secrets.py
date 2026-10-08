@@ -1,79 +1,26 @@
 import pytest
 
-from arch_installer.core.secrets import (
-    SECRETS_KEY_ENV_VAR_LABEL,
-    decrypt_secret,
-    decrypt_secrets_from_config,
-    encrypt_secret,
-    is_non_interactive_mode,
-)
+from arch_installer.core.secrets import decrypt_secret, encrypt_secret
 from arch_installer.errors import ConfigurationError
 
 
-class TestSecretHandling:
-    def test_should_produce_different_outputs_when_encrypting_same_input(self):
-        # random nonce should make outputs different each time
-        key = "my-secret-key"
-        plaintext = "test-password"
+class TestSecretCrypto:
+    def test_encrypting_the_same_input_twice_differs(self):
+        # a random nonce makes the ciphertext differ every time
+        assert encrypt_secret("password", "key") != encrypt_secret("password", "key")
 
-        first_encryption = encrypt_secret(plaintext, key)
-        second_encryption = encrypt_secret(plaintext, key)
+    def test_round_trips_through_the_same_key(self):
+        encrypted = encrypt_secret("disk-password", "key")
+        assert decrypt_secret(encrypted, "key") == "disk-password"
 
-        assert first_encryption != second_encryption
+    def test_round_trips_the_empty_string(self):
+        assert decrypt_secret(encrypt_secret("", "key"), "key") == ""
 
-    def test_should_raise_error_when_key_is_wrong(self):
-        correct_key = "correct-key"
-        wrong_key = "wrong-key"
-        plaintext = "secret-data"
-
-        encrypted = encrypt_secret(plaintext, correct_key)
-
+    def test_wrong_key_is_rejected(self):
+        encrypted = encrypt_secret("secret", "right")
         with pytest.raises(ConfigurationError, match="Failed to decrypt"):
-            decrypt_secret(encrypted, wrong_key)
+            decrypt_secret(encrypted, "wrong")
 
-    def test_should_handle_empty_string_when_decrypting(self):
-        key = "test-key"
-        plaintext = ""
-
-        encrypted = encrypt_secret(plaintext, key)
-        decrypted = decrypt_secret(encrypted, key)
-
-        assert decrypted == ""
-
-    def test_should_decrypt_both_passwords_when_key_provided(self):
-        key = "config-key"
-        luks_pass = "luks-password-123"
-        user_pass = "user-password-456"
-
-        luks_encrypted = encrypt_secret(luks_pass, key)
-        user_encrypted = encrypt_secret(user_pass, key)
-
-        luks_decrypted, user_decrypted = decrypt_secrets_from_config(
-            luks_encrypted, user_encrypted, key
-        )
-
-        assert luks_decrypted == luks_pass
-        assert user_decrypted == user_pass
-
-    def test_should_use_env_key_when_key_not_provided(self, monkeypatch):
-        key = "env-key"
-        monkeypatch.setenv(SECRETS_KEY_ENV_VAR_LABEL, key)
-
-        luks_pass = "luks-secret"
-        user_pass = "user-secret"
-
-        luks_encrypted = encrypt_secret(luks_pass, key)
-        user_encrypted = encrypt_secret(user_pass, key)
-
-        luks_decrypted, user_decrypted = decrypt_secrets_from_config(
-            luks_encrypted, user_encrypted
-        )
-
-        assert luks_decrypted == luks_pass
-        assert user_decrypted == user_pass
-
-    def test_should_raise_error_when_no_key_available(self, monkeypatch):
-        monkeypatch.delenv(SECRETS_KEY_ENV_VAR_LABEL, raising=False)
-
-        with pytest.raises(ConfigurationError, match="No decryption key"):
-            decrypt_secrets_from_config("encrypted-luks", "encrypted-user")
+    def test_malformed_blob_is_rejected(self):
+        with pytest.raises(ConfigurationError):
+            decrypt_secret("not-base64!!", "key")

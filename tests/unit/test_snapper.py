@@ -1,68 +1,52 @@
 from dataclasses import replace
 
-import pytest
+from arch_installer.config.models import SnapperConfig
+from arch_installer.executors.snapper import SnapperExecutor, SnapshotBootExecutor
+from tests.unit.conftest import build_config
 
-from arch_installer.steps.snapper import SnapperSetup
+
+def snapper_config(**overrides) -> SnapperConfig:
+    return replace(SnapperConfig(), **overrides)
 
 
-class TestSnapperSetup:
-    @pytest.fixture
-    def setup(self, minimal_config, runtime_state, fake_runner):
-        return SnapperSetup(minimal_config, runtime_state, fake_runner)
-
-    def test_should_skip_configuration_when_snapper_disabled(
-        self, minimal_config, runtime_state, fake_runner
-    ):
-        disabled_snapper = replace(minimal_config.snapper, enabled=False)
-        config_with_disabled_snapper = replace(minimal_config, snapper=disabled_snapper)
-        setup = SnapperSetup(config_with_disabled_snapper, runtime_state, fake_runner)
-
-        setup.configure_snapper()
-
-        assert len(fake_runner.get_commands()) == 0
-
-    def test_should_check_snapper_installed_when_enabled(
-        self, minimal_config, runtime_state, fake_runner
-    ):
-        setup = SnapperSetup(minimal_config, runtime_state, fake_runner)
-
-        setup.configure_snapper()
-
-        fake_runner.assert_command_called("pacman -Q snapper")
-
-    def test_should_install_snapper_when_not_already_installed(
-        self, minimal_config, runtime_state, fake_runner
-    ):
+class TestSnapperExecutor:
+    def test_installs_snapper_when_missing(self, fake_runner):
         fake_runner.set_response("pacman -Q snapper", exit_code=1)
-        setup = SnapperSetup(minimal_config, runtime_state, fake_runner)
+        fake_runner.set_response("test -f", exit_code=1)
+        SnapperExecutor(build_config(), fake_runner).execute()
+        fake_runner.assert_command_called("pacman -S --noconfirm snapper snap-pac")
 
-        setup.configure_snapper()
+    def test_writes_a_config_for_each_volume(self, fake_runner):
+        fake_runner.set_response("pacman -Q snapper", exit_code=0)
+        fake_runner.set_response("test -f", exit_code=1)
+        SnapperExecutor(build_config(), fake_runner).execute()
+        fake_runner.written_content("/mnt/etc/snapper/configs/root")
+        fake_runner.written_content("/mnt/etc/snapper/configs/home")
 
-        fake_runner.assert_command_called("pacman -S --noconfirm snapper")
-
-    def test_should_enable_timeline_timer_when_configured(
-        self, minimal_config, runtime_state, fake_runner
-    ):
-        setup = SnapperSetup(minimal_config, runtime_state, fake_runner)
-
-        setup.configure_snapper()
-
+    def test_enables_timeline_and_cleanup_timers(self, fake_runner):
+        fake_runner.set_response("pacman -Q snapper", exit_code=0)
+        fake_runner.set_response("test -f", exit_code=1)
+        SnapperExecutor(build_config(), fake_runner).execute()
         fake_runner.assert_command_called("systemctl enable snapper-timeline.timer")
-
-    def test_should_enable_cleanup_timer_when_configured(
-        self, minimal_config, runtime_state, fake_runner
-    ):
-        setup = SnapperSetup(minimal_config, runtime_state, fake_runner)
-
-        setup.configure_snapper()
-
         fake_runner.assert_command_called("systemctl enable snapper-cleanup.timer")
 
-    def test_should_create_config_directories_when_configuring(
-        self, minimal_config, runtime_state, fake_runner
-    ):
-        setup = SnapperSetup(minimal_config, runtime_state, fake_runner)
+    def test_writes_snap_pac_config_when_enabled(self, fake_runner):
+        fake_runner.set_response("pacman -Q snapper", exit_code=0)
+        fake_runner.set_response("test -f", exit_code=1)
+        SnapperExecutor(build_config(snapper=snapper_config(snap_pac=True)), fake_runner).execute()
+        fake_runner.written_content("/mnt/etc/snap-pac.d/root.conf")
 
-        setup.configure_snapper()
+    def test_omits_snap_pac_config_when_disabled(self, fake_runner):
+        fake_runner.set_response("pacman -Q snapper", exit_code=0)
+        fake_runner.set_response("test -f", exit_code=1)
+        SnapperExecutor(build_config(snapper=snapper_config(snap_pac=False)), fake_runner).execute()
+        fake_runner.assert_command_not_called("snap-pac.d")
 
-        fake_runner.assert_command_called("mkdir -p /mnt/etc/snapper/configs")
+
+class TestSnapshotBootExecutor:
+    def test_deploys_the_refresh_hook_and_settings(self, fake_runner):
+        config = build_config(boot=replace(build_config().boot, enable_snapshot_boot=True))
+        SnapshotBootExecutor(config, fake_runner).execute()
+        fake_runner.written_content("/mnt/etc/default/manage-snapshot-ukis")
+        fake_runner.written_content("/mnt/etc/pacman.d/hooks/95-snapshot-uki-refresh.hook")
+        fake_runner.assert_command_called("systemctl enable snapper-boot-entries.path")

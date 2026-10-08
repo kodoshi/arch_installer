@@ -1,79 +1,45 @@
-import pytest
+from dataclasses import replace
 
-from arch_installer.steps.gpu import GpuDriverSetup
+from arch_installer.config.models import GpuConfig, GpuDriver, GpuVendor
+from arch_installer.executors.gpu import NvidiaDriverExecutor, initramfs_rebuild_hook
+from tests.unit.conftest import build_config
 
 
-class TestGpuDriverSetup:
-    @pytest.fixture
-    def setup(self, fake_runner):
-        return GpuDriverSetup(fake_runner)
+class TestProprietaryNvidiaGating:
+    def test_nvidia_with_proprietary_driver_counts_as_proprietary(self):
+        config = build_config(gpu=GpuConfig(vendor=GpuVendor.NVIDIA, driver=GpuDriver.NVIDIA_DKMS))
+        assert config.gpu.uses_proprietary_nvidia_driver
 
-    def test_should_enable_drm_modeset_when_nvidia_gpu_configured(self, fake_runner):
-        # grep returns 1 = nvidia not yet in mkinitcpio.conf
-        fake_runner.set_response("grep", exit_code=1)
+    def test_nvidia_with_nouveau_is_not_proprietary(self):
+        config = build_config(gpu=GpuConfig(vendor=GpuVendor.NVIDIA, driver=GpuDriver.NOUVEAU))
+        assert not config.gpu.uses_proprietary_nvidia_driver
 
-        setup = GpuDriverSetup(fake_runner, gpu_vendor="nvidia", gpu_driver="nvidia-dkms")
-        setup.configure_gpu()
+    def test_amd_is_not_proprietary(self):
+        config = build_config(gpu=GpuConfig(vendor=GpuVendor.AMD))
+        assert not config.gpu.uses_proprietary_nvidia_driver
 
-        # should create modprobe config for nvidia drm
-        fake_runner.assert_command_called("echo")
-        fake_runner.assert_command_called("nvidia.conf")
 
-    def test_should_add_nvidia_modules_when_nvidia_gpu_configured(self, fake_runner):
-        # grep returns 1 = nvidia not yet in mkinitcpio.conf
-        fake_runner.set_response("grep", exit_code=1)
+class TestNvidiaDriverExecutor:
+    def test_writes_drm_modeset_options(self, fake_runner):
+        config = build_config(gpu=GpuConfig(vendor=GpuVendor.NVIDIA, driver=GpuDriver.NVIDIA_DKMS))
+        NvidiaDriverExecutor(config, fake_runner).execute()
 
-        setup = GpuDriverSetup(fake_runner, gpu_vendor="nvidia", gpu_driver="nvidia-dkms")
-        setup.configure_gpu()
+        assert "modeset=1" in fake_runner.written_content("/mnt/etc/modprobe.d/nvidia.conf")
 
-        # modules should be added via sed
-        fake_runner.assert_command_called("sed")
-        fake_runner.assert_command_called("nvidia nvidia_modeset")
+    def test_rebuild_hook_targets_the_configured_kernels(self, fake_runner):
+        config = build_config(
+            gpu=GpuConfig(vendor=GpuVendor.NVIDIA, driver=GpuDriver.NVIDIA_DKMS),
+            boot=replace(build_config().boot, selected_kernels=("linux-lts",)),
+        )
+        NvidiaDriverExecutor(config, fake_runner).execute()
 
-    def test_should_skip_adding_modules_when_already_configured(self, fake_runner):
-        # grep returns 0 = nvidia already in mkinitcpio.conf
-        fake_runner.set_response("grep", exit_code=0)
+        hook = fake_runner.written_content("/mnt/etc/pacman.d/hooks/nvidia.hook")
+        assert "Target=linux-lts" in hook
+        assert "Target=nvidia-dkms" in hook
 
-        setup = GpuDriverSetup(fake_runner, gpu_vendor="nvidia", gpu_driver="nvidia-dkms")
-        setup.configure_gpu()
 
-        # should NOT run sed since already configured
-        fake_runner.assert_command_not_called("sed")
-
-    def test_should_create_pacman_hook_when_nvidia_dkms_configured(self, fake_runner):
-        fake_runner.set_response("grep", exit_code=1)
-
-        setup = GpuDriverSetup(fake_runner, gpu_vendor="nvidia", gpu_driver="nvidia-dkms")
-        setup._install_nvidia_pacman_hook()
-
-        # should create hook directory and hook file
-        fake_runner.assert_command_called("mkdir")
-        fake_runner.assert_command_called("nvidia.hook")
-
-    def test_should_require_minimal_config_when_amd_gpu_configured(self, fake_runner):
-        setup = GpuDriverSetup(fake_runner, gpu_vendor="amd", gpu_driver="")
-        setup.configure_gpu()
-
-        # AMD typically needs less configuration - no nvidia-specific commands
-        fake_runner.assert_command_not_called("nvidia")
-
-    def test_should_require_minimal_config_when_intel_gpu_configured(self, fake_runner):
-        setup = GpuDriverSetup(fake_runner, gpu_vendor="intel", gpu_driver="")
-        setup.configure_gpu()
-
-        # intel typically needs minimal configuration - no nvidia-specific commands
-        fake_runner.assert_command_not_called("nvidia")
-
-    def test_should_skip_config_when_gpu_disabled(self, fake_runner):
-        setup = GpuDriverSetup(fake_runner, gpu_vendor="none")
-        setup.configure_gpu()
-
-        # should not run any GPU-specific commands
-        assert len(fake_runner.recorded_commands) == 0
-
-    def test_should_skip_nvidia_config_when_nouveau_driver_used(self, fake_runner):
-        setup = GpuDriverSetup(fake_runner, gpu_vendor="nvidia", gpu_driver="nouveau")
-        setup.configure_gpu()
-
-        # nouveau is open source, shouldn't need proprietary nvidia config
-        fake_runner.assert_command_not_called("nvidia_drm")
+class TestInitramfsHook:
+    def test_lists_driver_and_kernel_targets(self):
+        hook = initramfs_rebuild_hook(("linux",))
+        assert "Target=nvidia" in hook
+        assert "Target=linux" in hook

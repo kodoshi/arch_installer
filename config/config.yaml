@@ -104,8 +104,7 @@ storage:
     size_mb: 4096 # 4 GiB, based on system RAM
     path: /.swap/swapfile
     # hibernation requires swap >= RAM size
-    hibernation:
-      enabled: true
+    hibernation: true
 
 # boot Configuration
 boot:
@@ -187,9 +186,6 @@ boot:
 
 # package Configuration
 packages:
-  # package profile: 'base' for full installation
-  profile: base
-
   # base packages (full installation)
   base:
     # core system
@@ -293,17 +289,12 @@ packages:
 
 # GPU Configuration
 gpu:
-  # enable GPU driver installation
-  enabled: true
-
   # GPU vendor: nvidia, amd, intel, none
-  vendor: nvidia
+  vendor: amd
 
-  # default driver selection (per vendor):
-  # - nvidia: nouveau, nvidia_dkms, nvidia_open
-  # - amd: amdgpu (open source, default)
-  # - intel: i915 (open source, default)
-  driver: nouveau
+  # driver, only used for nvidia: nouveau, nvidia-open, nvidia-dkms
+  # amd and intel always use their open-source mesa stack
+  driver: ''
 
   # driver-specific packages
   drivers:
@@ -372,8 +363,7 @@ snapper:
       yearly: 1
 
   # snap-pac integration (pre/post pacman snapshots)
-  snap_pac:
-    enabled: true
+  snap_pac: true
 
 # Firewall Configuration (UFW)
 firewall:
@@ -417,19 +407,59 @@ docker:
   # group for passwordless docker access (created and user added to this group)
   access_group: docker_access
 
-# Dotfiles Sync Configuration
-dotfiles:
-  # enable dotfiles sync feature
+# Desktop Notifications
+# Global toggle for all desktop notifications (snapper snapshots, etc.)
+notifications:
+  enabled: true
+
+# Sync Configuration
+# What usb-backup copies to the backup partition of the USB drive.
+sync:
+  # backup categories to include: dotfiles, keepass, browser, system
+  backup_categories:
+    - dotfiles
+    - keepass
+    - browser
+    - system
+
+  # custom items to back up to USB (in addition to built-in categories)
+  # built-in categories: dotfiles, keepass, browser, system
+  backup_items: []
+  # examples:
+  #   - name: ssh_keys
+  #     source_path: ~/.ssh
+  #     description: SSH keys and config
+  #   - name: gpg_keys
+  #     source_path: ~/.gnupg
+  #     description: GPG keyring
+
+# USB Boot Drive for Plausible Deniability Encryption (PDE)
+# When enabled, EFI bootloader and LUKS headers are stored on a separate USB drive.
+# Without the USB plugged in, the main disk appears as random data and Windows boots.
+# The USB also contains a signed live Arch ISO for recovery.
+usb_boot:
+  # enable USB boot drive setup
   enabled: false
 
-  # git remote URL
-  # examples:
-  #   git@github.com:username/dotfiles.git
-  #   git@gitlab.com:username/dotfiles.git
-  remote_url: ''
+  # USB drive device path (e.g., /dev/sdb)
+  # can be overridden by USB_BOOT_DEVICE env var
+  device: ''
 
-  # Local repository path
-  repo_path: ~/.dotfiles-repo
+  # EFI partition size on USB in MiB
+  efi_size_mb: 512
+
+  # ISO partition size on USB in MiB (must fit the Arch ISO)
+  iso_partition_size_mb: 1024
+
+  # path to the Arch Linux live ISO to copy onto USB
+  iso_path: ''
+
+  # detach LUKS header from main disk and store on USB
+  # this makes the main disk indistinguishable from random data
+  detached_luks_header: true
+
+  # backup partition size in MiB (0 = use remaining space on USB)
+  backup_partition_size_mb: 0
 
 # Encrypted Secrets for both Non-Interactive and Interactive Mode
 # Generate encrypted passwords using:

@@ -2,307 +2,196 @@
 !theme plain
 skinparam classAttributeIconSize 0
 skinparam groupInheritance 2
+skinparam packageStyle rectangle
+set separator none
 
 title "DALI - Declarative ArchLinux Installer - Architecture Diagram"
 
-package "Entry Points" {
-    class "installer.main()" as main <<entry>> {
-        orchestrates full installation
-        via CLI or env vars
-    }
-    class "gui.main()" as gui_main <<entry>> {
-        tkinter GUI wizard
-        alternative to CLI
+package "Entry Points (cli.py)" {
+    class "cli" as cli <<module>> {
+        + main(): int
+        + usb_init(): int
+        + usb_backup(): int
+        + encrypt_secrets(): int
+        + decrypt_secrets(): int
+        + resolve_config(environment, interactive, tui): InstallerConfig
+        + validate_for_install(config)
+        --
+        defaults -> config.yaml -> secrets
+        -> environment -> TUI
     }
 }
 
-package "Core Orchestration" <<Rectangle>> {
-    class ArchInstaller {
-        - _config: DeclaredConfig
-        - _runtime_config: RuntimeConfig
-        - _runner: CommandRunner
-        --
-        + install(): void
-        - _run_storage_step()
-        - _run_packages_step()
-        - _run_system_step()
-        - _run_gpu_step()
-        - _run_mkinitcpio_step()
-        - _run_bootloader_step()
-        - _run_snapper_step()
-        - _run_firewall_step()
-        - _run_migration_step()
-        - _build_final_config_dict()
-        --
-        main orchestrator that runs
-        each step in sequence
-    }
-
-    class StepDefinition <<dataclass>> {
-        step: InstallStep
-        name: str
-        description: str
-        required: bool
-        --
-        metadata for each
-        installation step
-    }
-
-    enum InstallStep {
-        STORAGE
-        PACKAGES
-        SYSTEM
-        GPU
-        MKINITCPIO
-        BOOTLOADER
-        SNAPPER
-        FIREWALL
-        MIGRATION
-    }
-}
-
-package "Configuration Layer" <<Rectangle>> {
-    class DeclaredConfig <<frozen dataclass>> {
+package "Configuration (config/)" {
+    class InstallerConfig <<frozen>> {
         system: SystemConfig
+        packages: PackagesConfig
         storage: StorageConfig
         boot: BootConfig
-        packages: PackagesConfig
         gpu: GpuConfig
         snapper: SnapperConfig
         firewall: FirewallConfig
         docker: DockerConfig
-        dotfiles: DotfilesConfig
+        notifications: NotificationsConfig
+        sync: SyncConfig
         migration: MigrationConfig
-        secrets: EncryptedSecretsConfig?
+        usb_boot: UsbBootConfig
+        secrets: EncryptedSecretsConfig
+        credentials: Credentials
+    }
+
+    class "loader" as loader <<module>> {
+        + load_config(path): InstallerConfig
+        + parse_config(raw): InstallerConfig
         --
-        immutable config from YAML
+        walks the model's type hints;
+        unknown keys and wrong types fail
     }
 
-    class RuntimeConfig <<dataclass>> {
-        target_disk: str
-        luks_password: str
-        user_password: str
-        source_luks_password: str
-        target_root: Path
-        efi_mount: Path
-        non_interactive: bool
-        enable_*: bool flags
-        excluded_steps: set
-        selected_kernels: list[str]
-        selected_desktops: list[str]
-        cpu_vendor: str
-        gpu_vendor: str
-        gpu_driver: str
-        package_profile: str
-        swap_size_mb: int
-        wipe_method: str
-        hostname: str
-        username: str
-        timezone: str
-        --
-        mutable runtime state
-        populated at runtime from
-        user selections
+    enum EnvVar {
+        LUKS_PASSWORD
+        TARGET_DISK
+        ENABLE_FIREWALL
+        ...
     }
 
-    class SystemConfig <<frozen>> {
-        hostname, timezone
-        locale: LocaleConfig
-        user: UserConfig
-        mirrors: PacmanMirrorConfig
-        cpu_vendor: str
+    class Environment {
+        + text() / flag() / number()
+        + choice() / choices() / names()
+        + override(config): InstallerConfig
     }
 
-    class StorageConfig <<frozen>> {
-        target_disk: str
-        efi_size_mb: int
-        luks: LuksConfig
-        btrfs: BtrfsConfig
-        swap: SwapConfig
-    }
-
-    class "loader.py functions" as loader {
-        + load_main_yaml_config()
-        + load_config_with_validation()
-        - _parse_*_section() parsers
-        --
-        YAML parsing with defaults
+    class "secrets_file" as secrets_file <<module>> {
+        + write_encrypted_secrets(path, secrets)
     }
 }
 
-package "User Interaction Layer" <<Rectangle>> {
-    abstract class InteractionStrategy {
+package "Interactive Setup (tui/)" {
+    class "app" as tui_app <<module>> {
+        + run_tui_setup(config): InstallerConfig
+        --
+        every screen starts on the
+        inherited value
+    }
+    class "widgets" as widgets <<module>> {
+        radio_menu / checkbox_menu
+        toggle_menu / text_input
+        confirm_screen / info_screen
+    }
+    class TextEntry {
+        inherited: str
+        typed: str
+        + press(key): str | None
+    }
+}
+
+package "Orchestration (installer.py)" {
+    class Installer {
+        - _config: InstallerConfig
         - _runner: CommandRunner
-        - _hardware: HardwareDetector
-        --
-        + collect_all_selections()
-        + prompt_disk_selection()
-        + prompt_password()
-        + prompt_gpu_vendor()
-        + prompt_cpu_vendor()
-        + prompt_desktop_environment()
-        + prompt_swap_size()
-        + prompt_wipe_method()
-        + prompt_boolean()
-        + prompt_text()
-        + prompt_secrets_key()
-        + prompt_nvidia_driver()
-        + get_available_disks()
-        + get_system_ram_mb()
-        --
-        abstract interface for
-        collecting user input
+        + install()
+        - _install_utility_scripts()
+        - _write_final_config()
     }
 
-    class CLIInteractionStrategy {
-        - _config: DeclaredConfig
-        --
-        terminal-based prompts
-        with config.yaml defaults
+    class Section <<frozen>> {
+        label: str
+        enabled: (InstallerConfig) -> bool
+        executor: type[Executor]
     }
 
-    class GUIInteractionStrategy {
-        tkinter-based screens
-        for wizard flow
-    }
-
-    class HardwareDetector {
-        + list_available_disks()
-        + get_system_ram_mb()
-        --
-        hardware info via lsblk
-    }
-
-    class InstallationSelections <<dataclass>> {
-        target_disk, passwords
-        gpu/cpu vendor
-        selected_desktops
-        swap_size_mb
-        enable_* flags
-        --
-        holds all user choices
-    }
+    note right of Section
+        PIPELINE: migration staging, storage,
+        mirrors, packages, migration restore,
+        system, docker, GPU driver, kernel images,
+        bootloader, USB boot, snapper,
+        bootable snapshots, notifications, firewall
+    end note
 }
 
-package "Installation Steps" <<Rectangle>> {
-    class StorageProvisioner {
-        + provision_storage()
-        - _wipe_disk()
-        - _create_partitions()
-        - _setup_luks()
-        - _setup_btrfs()
-        - _mount_filesystems()
-        - _create_swapfile()
-        --
-        disk setup and LUKS
+package "Executors (executors/)" {
+    abstract class Executor {
+        # _config: InstallerConfig
+        # _runner: CommandRunner
+        + {abstract} execute()
     }
 
-    class PackageInstaller {
-        + install_packages()
-        --
-        pacstrap, packages
-    }
-
-    class SystemConfigurator {
-        + configure_system()
-        --
-        hostname, users, etc
-    }
-
-    class GpuDriverSetup {
-        + configure_gpu()
-        --
-        GPU driver packages
-    }
-
-    class UkiGenerator {
-        + generate_ukis()
-        --
-        mkinitcpio, UKIs
-    }
-
-    class BootloaderSetup {
-        + setup_bootloader()
-        --
-        systemd-boot, keys
-    }
-
-    class SnapperSetup {
-        + configure_snapper()
-        --
-        BTRFS snapshots
-    }
-
-    class FirewallSetup {
-        + configure_firewall()
-        --
-        UFW rules
-    }
-
-    class InstallationMigrator {
-        + migrate()
-        + post_install_restore()
-        --
-        data from old install
-    }
-
-    enum WipeMethod {
-        QUICK
-        SECURE
-        DISCARD
-        SKIP
-    }
+    class StorageExecutor
+    class MirrorsExecutor
+    class PackagesExecutor
+    class SystemExecutor
+    class DockerExecutor
+    class NvidiaDriverExecutor
+    class UkiExecutor
+    class BootloaderExecutor
+    class SnapperExecutor
+    class SnapshotBootExecutor
+    class SnapshotNotificationsExecutor
+    class FirewallExecutor
+    class MigrationStagingExecutor
+    class MigrationRestoreExecutor
+    class UsbBootExecutor
+    class UsbBackupExecutor
 }
 
-package "Command Execution" <<Rectangle>> {
+package "Core (core/)" {
     abstract class CommandRunner {
-        + run(cmd, **kwargs)
-        + arch_chroot(cmd)
-        --
-        abstract command exec
+        + {abstract} run(command, ...): CommandExecutionResult
+        + {abstract} run_as_chroot(command, ...): CommandExecutionResult
     }
-
-    class SystemCommandRunner {
-        subprocess execution
-        with logging
+    class SystemCommandRunner
+    class "secrets" as crypto <<module>> {
+        + encrypt_secret(plaintext, key): str
+        + decrypt_secret(blob, key): str
+    }
+    class "log" as log <<module>> {
+        + configure_logging(level)
     }
 }
 
-package "Templates" <<Rectangle>> {
-    note "template generators for:\n- mkinitcpio.conf\n- systemd-boot entries\n- NVIDIA config\n- snapper configs\n- systemd units" as templates_note
-}
+cli --> loader : loads
+cli --> Environment : overrides
+cli --> tui_app : asks (interactive)
+cli --> Installer : runs
+cli --> UsbBootExecutor : usb_init
+cli --> UsbBackupExecutor : usb_init / usb_backup
+cli --> secrets_file : encrypt_secrets
+cli --> log
 
-' === Relationships ===
+loader --> InstallerConfig : builds
+Environment --> EnvVar
+Environment --> InstallerConfig : replace()
+Environment --> crypto : unlock_secrets
+secrets_file --> loader : verifies edit
+cli --> crypto
 
-main --> ArchInstaller : creates
-gui_main --> ArchInstaller : creates
+tui_app --> widgets
+widgets --> TextEntry
+tui_app --> InstallerConfig : replace()
 
-ArchInstaller --> DeclaredConfig : reads
-ArchInstaller --> RuntimeConfig : modifies
-ArchInstaller --> CommandRunner : uses
+Installer o-- "PIPELINE" Section
+Section --> Executor : instantiates
+Installer --> CommandRunner
 
-ArchInstaller --> StorageProvisioner : delegates
-ArchInstaller --> PackageInstaller : delegates
-ArchInstaller --> SystemConfigurator : delegates
-ArchInstaller --> GpuDriverSetup : delegates
-ArchInstaller --> UkiGenerator : delegates
-ArchInstaller --> BootloaderSetup : delegates
-ArchInstaller --> SnapperSetup : delegates
-ArchInstaller --> FirewallSetup : delegates
-ArchInstaller --> InstallationMigrator : delegates
-
-loader --> DeclaredConfig : creates
-DeclaredConfig *-- SystemConfig
-DeclaredConfig *-- StorageConfig
-
-InteractionStrategy <|-- CLIInteractionStrategy
-InteractionStrategy <|-- GUIInteractionStrategy
-InteractionStrategy --> HardwareDetector : uses
-InteractionStrategy --> InstallationSelections : produces
-
-CLIInteractionStrategy --> DeclaredConfig : shows defaults
+Executor <|-- StorageExecutor
+Executor <|-- MirrorsExecutor
+Executor <|-- PackagesExecutor
+Executor <|-- SystemExecutor
+Executor <|-- DockerExecutor
+Executor <|-- NvidiaDriverExecutor
+Executor <|-- UkiExecutor
+Executor <|-- BootloaderExecutor
+Executor <|--- SnapperExecutor
+Executor <|--- SnapshotBootExecutor
+Executor <|--- SnapshotNotificationsExecutor
+Executor <|--- FirewallExecutor
+Executor <|--- MigrationStagingExecutor
+Executor <|--- MigrationRestoreExecutor
+Executor <|--- UsbBootExecutor
+Executor <|--- UsbBackupExecutor
+Executor --> InstallerConfig : reads
+Executor --> CommandRunner : runs commands
 
 CommandRunner <|-- SystemCommandRunner
-StorageProvisioner --> WipeMethod : uses
 
 @enduml

@@ -7,15 +7,15 @@ arch_installer/
 ├── config/
 │   └── config.yaml              # main configuration, main source of truth
 ├── src/arch_installer/
-│   ├── installer.py             # orchestrator
-│   ├── config/                  # YAML loading, dataclasses
-│   ├── core/                    # command runner, runtime state
-│   ├── steps/                   # installation steps
-│   └── templates/               # config file templates
-├── scripts/                     # old implementation in bash
+│   ├── cli.py                   # entry points and config resolution
+│   ├── installer.py             # orchestrator and section pipeline
+│   ├── config/                  # config model, YAML loader, environment variables
+│   ├── core/                    # command runner, logging, secrets crypto
+│   ├── executors/               # one executor per config section
+│   └── tui/                     # curses interactive setup
+├── scripts/                     # utilities installed on the target system
 ├── tests/
 │   ├── unit/                    # fast, isolated tests
-│   ├── integration/             # integration tests, modules are combined
 │   └── qemu/                    # full VM tests
 └── docs/
 ```
@@ -28,9 +28,10 @@ The Makefile provides the canonical entry point:
 
 ```bash
 make install          # Full installation: deps + run
-make gui-install      # GUI installer with visual interface
 make deps             # Install dependencies only
 make run              # Run installer (assumes deps installed)
+make lint             # ruff check + format check
+make format           # ruff format + safe fixes
 ```
 
 ### With Environment Variables
@@ -39,32 +40,8 @@ make run              # Run installer (assumes deps installed)
 LUKS_PASSWORD=lukspass USER_PASSWORD=userpass NON_INTERACTIVE=true make install
 ```
 
-#### Complete Environment Variable Reference
-
-| Variable               | Description                                       | Required                                               |
-| ---------------------- | ------------------------------------------------- | ------------------------------------------------------ |
-| `LUKS_PASSWORD`        | LUKS encryption password                          | Yes (unless encrypted in `secrets` in config.yaml)     |
-| `USER_PASSWORD`        | User account password                             | Yes (unless encrypted in `secrets` in config.yaml)     |
-| `TARGET_DISK`          | Target disk for installation (e.g., /dev/nvme0n1) | Yes (unless filled in `storage.target_disk` or prompt) |
-| `NON_INTERACTIVE`      | Set to `true` for fully automated installation    | No                                                     |
-| `CONFIG_PATH`          | Path to custom config.yaml                        | No                                                     |
-| `VERBOSE`              | Set to `true` for verbose output                  | No                                                     |
-| `ENABLE_SNAPSHOT_BOOT` | Set to `true` to enable bootable snapshots        | No                                                     |
-| `ENABLE_UFW`           | Set to `true` to enable UFW firewall              | No (default: true)                                     |
-| `ENABLE_HIBERNATION`   | Set to `true` to enable hibernation               | No                                                     |
-| `ENABLE_DOCKER`        | Set to `true` to enable Docker installation       | No (or prompt)                                         |
-| `ENABLE_MIGRATION`     | Set to `true` for migration from existing system  | No                                                     |
-| `SKIP_SWAP`            | Set to `true` to skip swapfile creation           | No                                                     |
-| `PACKAGE_PROFILE`      | Package profile to use (base, desktop, full)      | No (default: base)                                     |
-| `GPU_VENDOR`           | GPU vendor (amd, intel, nvidia, none)             | No (or prompt)                                         |
-| `CPU_VENDOR`           | CPU vendor (intel, amd)                           | Yes (or prompt)                                        |
-| `DESKTOP_ENVIRONMENT`  | Desktop to install (gnome, kde, hyprland, none)   | No (or prompt)                                         |
-| `SELECTED_KERNELS`     | Comma-separated kernel names to install           | No                                                     |
-| `WIPE_METHOD`          | Disk wipe method (quick, secure, discard, skip)   | No (default: quick, or prompt)                         |
-| `SOURCE_LUKS_PASSWORD` | Password for existing LUKS volume (migration)     | Migration only                                         |
-| `SECRETS_KEY`          | Key to decrypt encrypted passwords in config      | Only if using encrypted `secrets` in config.yaml       |
-| `TEST_SWAP_SIZE_MB`    | Override swap size for testing                    | Testing only                                           |
-| `TEST_EFI_SIZE_MB`     | Override EFI partition size for testing           | Testing only                                           |
+Every variable is listed in the [Configuration reference](configuration.md#environment-variables).
+Their names live in one place in the code: the `EnvVar` enum in `config/environment.py`.
 
 ### Direct Python Execution
 
@@ -79,7 +56,7 @@ Or without poetry (requires Python 3.13+):
 
 ```bash
 pip install -e .
-python -m arch_installer.installer
+python -m arch_installer.cli
 ```
 
 ## Code Flow
@@ -88,74 +65,75 @@ python -m arch_installer.installer
 
 ![Installer Flow](diagrams/installer-flow.png)
 
-#### Phase 1: Configuration Loading
+#### Phase 1: Configuration Resolution
 
-Everything starts with `config/config.yaml`. The loader parses this into typed Python structs. The config is immutable once loaded.
+`cli.py` builds one `InstallerConfig` in a fixed order, each step overriding the previous one:
+
+1. defaults: every field default in `config/models.py`
+2. `config/config.yaml`, with its encrypted passwords unlocked by `ARCH_INSTALLER_SECRETS_KEY`
+3. environment variables (`Environment.override` in `config/environment.py`)
+4. the TUI, unless `NON_INTERACTIVE=true`: every screen starts on the value inherited from steps 1-3, Enter keeps it and any other choice overrides it
+
+The result is validated (`validate_for_install`) and is immutable from then on.
 
 #### Phase 2: Orchestration
 
-`installer.py` runs steps in a fixed order. Each step gets only the config sections it needs. Steps can be excluded via options (e.g., `--skip-swap`, `SKIP_SWAP=true`), or through interactive prompts when not in non-interactive mode.
+`installer.py` holds a `PIPELINE` of sections. Each `Section` has a label, an `enabled(config)` predicate and an executor class. The `Installer` runs the enabled sections in order; every executor receives the same finished `InstallerConfig`, so a choice is decided in exactly one place: the config.
 
 #### Phase 3: Command Execution
 
-Each step uses a `CommandRunner` to execute shell commands. This abstraction exists for testability:
+Each executor uses a `CommandRunner` to execute shell commands. This abstraction exists for testability:
 
 - `SystemCommandRunner`: runs real subprocess calls
 - `FakeCommandRunner`: records commands for unit tests
 
-### RuntimeConfig vs DeclaredConfig
+### One Config Model
 
-Two config types serve different purposes:
-
-| Type             | Source                  | Mutable     | Purpose                                      |
-| ---------------- | ----------------------- | ----------- | -------------------------------------------- |
-| `DeclaredConfig` | YAML file               | No (frozen) | What you want installed                      |
-| `RuntimeConfig`  | User prompts, detection | Yes         | Runtime state (passwords, detected hardware) |
-
-The installer combines both: declared intent from the config file, runtime values from user input or hardware detection.
+There is a single frozen dataclass tree, `InstallerConfig`. Answers from the environment or the TUI produce a new instance via `dataclasses.replace`, never a parallel "runtime" object, so every executor and the generated `final_config.yaml` see the values that were actually installed. Passwords live in `InstallerConfig.credentials` and are left out of `final_config.yaml` by `exportable_config()`.
 
 ## File Layout
 
 ```
 src/arch_installer/
-├── installer.py                # orchestrator
+├── cli.py                      # entry points: install, usb-init, usb-backup, secrets helpers
+├── installer.py                # Installer orchestrator and the PIPELINE of sections
 ├── errors.py                   # custom exceptions
 ├── config/
-│   ├── loader.py               # YAML parsing
-│   └── models.py               # dataclasses (frozen)
+│   ├── models.py               # InstallerConfig and its sections (frozen), enums, defaults
+│   ├── loader.py               # YAML -> InstallerConfig, driven by the model's type hints
+│   ├── environment.py          # EnvVar names, typed readers, override(), unlock_secrets()
+│   └── secrets_file.py         # writes encrypted passwords into config.yaml, keeping comments
 ├── core/
-│   ├── command.py              # CommandRunner interface
-│   ├── context.py              # InstallContext for step execution
-│   ├── runtime_state.py        # RuntimeConfig (mutable state)
-│   ├── interaction.py          # InteractionStrategy interface, HardwareDetector
-│   ├── cli_interaction.py      # CLI implementation of InteractionStrategy
-│   ├── prompts.py              # backward-compatible wrapper for CLI interaction
-│   ├── secrets.py              # encrypted password handling
-│   └── distro.py               # distribution detection
-├── gui/
-│   ├── __init__.py             # GUI installer entry point
-│   ├── __main__.py             # module runner
-│   └── gui_interaction.py      # GUI implementation of InteractionStrategy
-├── steps/
-│   ├── storage.py              # disk, LUKS, BTRFS, swap, wipe methods
-│   ├── packages.py             # pacstrap, fstab
+│   ├── command.py              # CommandRunner interface, SystemCommandRunner
+│   ├── log.py                  # stdlib logging setup (stdout progress, stderr problems)
+│   └── secrets.py              # AES-256-GCM encryption of stored passwords
+├── executors/
+│   ├── base.py                 # Executor base class, file/mount helpers
+│   ├── storage.py              # disk wipe, partitions, LUKS, BTRFS, swap
+│   ├── mirrors.py              # pacman mirrorlist
+│   ├── packages.py             # pacstrap, fstab, display manager
 │   ├── system.py               # hostname, locale, user
-│   ├── gpu.py                  # driver setup
-│   ├── boot.py                 # UKI, systemd-boot, secure boot
-│   ├── snapper.py              # snapshots
-│   ├── bootable_snapshots.py   # bootable snapshot hooks
-│   ├── migration.py            # migration from existing install
-│   └── firewall.py             # UFW setup
-└── templates/
-    ├── boot.py                 # UKI/boot templates
-    ├── gpu.py                  # GPU config templates
-    ├── snapper.py              # snapper config templates
-    └── systemd.py              # systemd service templates
+│   ├── docker.py               # Docker daemon and access group
+│   ├── gpu.py                  # proprietary NVIDIA driver setup
+│   ├── boot.py                 # mkinitcpio, UKI variants, secure boot, systemd-boot
+│   ├── snapper.py              # snapshots, bootable snapshots, notifications
+│   ├── migration.py            # migration from an existing install
+│   ├── firewall.py             # UFW setup (configured offline, enabled on boot)
+│   ├── usb_boot.py             # USB boot drive
+│   └── usb_backup.py           # USB backup partition
+└── tui/
+    ├── app.py                  # screen flow: InstallerConfig in, InstallerConfig out
+    └── widgets.py              # curses widgets (radio, checkbox, toggles, text entry)
+
+scripts/                        # installed to /usr/local/bin on the target
+├── manage_snapshot_entries.sh  # manage-snapshot-ukis
+├── verify_install.sh           # verify-install (also `make verify`)
+└── dotfiles-sync.sh            # dotfiles-sync
 
 docs/
 ├── diagrams/
 │   └── architecture.puml       # PlantUML class diagram
-├── code-analysis.md            # redundancy/overlap analysis
+├── functional-map.md           # every entry point, module and test, mapped
 ├── development.md              # this file
 └── ...                         # other documentation
 ```
@@ -166,33 +144,29 @@ docs/
 
 A PlantUML class diagram is available at `docs/diagrams/architecture.puml`. It shows:
 
-- All classes, dataclasses, and enums
-- Relationships (inheritance, composition, dependencies)
-- Key methods and attributes
-- Design patterns used (Strategy, Command)
+- The entry points, the config model and how it is resolved
+- The orchestrator, its `PIPELINE` of sections and the executors
+- The `CommandRunner` port that executors run every command through
 
 To generate the diagram:
 
 ```bash
 # requires plantuml installed
-plantuml docs/diagrams/architecture.puml
+make diagrams
 ```
 
-### Code Analysis
+### Functional Map
 
-A comprehensive analysis of the codebase is available at `docs/code-analysis.md`. It includes:
+`docs/functional-map.md` maps every entry point, module, config section and test to what it does. `docs/code-analysis.md` is a historical analysis of the code before the restructure and no longer matches it.
 
-- Description table for all classes and their responsibilities
-- Identified redundancies and potential improvements
-- Recommendations for code reduction
+## Adding a New Section
 
-## Adding a New Step
-
-1. Create `steps/new_step.py` with a class that takes config + runner
-2. Add it to the step list in `installer.py`
-3. Add any new config sections to `models.py`
-4. Write tests in `tests/unit/test_new_step.py`
-5. Add assertions in main Qemu tests in `tests/qemu/test_installation.py` (if applicable)
+1. Add the config section to `config/models.py` (a frozen dataclass with defaults) and a field for it on `InstallerConfig`
+2. Create `executors/new_section.py` with an `Executor` subclass implementing `execute()`
+3. Add a `Section(label, enabled, executor)` to `PIPELINE` in `installer.py`, in the right order
+4. If it needs an environment override, add the name to `EnvVar` and the override to `Environment.override`
+5. Write tests in `tests/unit/test_new_section.py`
+6. Add assertions in the main QEMU tests in `tests/qemu/test_installation.py` (if applicable)
 
 ## Idempotent Design
 

@@ -535,8 +535,12 @@ verify_system_config() {
     fi
 
     # locale
-    local expected_locale
-    expected_locale=$(get_config '.system.locale' '')
+    local expected_locale=""
+    local locale_language
+    locale_language=$(get_config '.system.locale.language' '')
+    if [[ -n "$locale_language" ]]; then
+        expected_locale="${locale_language}.$(get_config '.system.locale.encoding' 'UTF-8')"
+    fi
     local actual_locale
     actual_locale=$(localectl status | grep "System Locale" | sed 's/.*LANG=//')
 
@@ -552,7 +556,7 @@ verify_system_config() {
 
     # keymap
     local expected_keymap
-    expected_keymap=$(get_config '.system.keymap' '')
+    expected_keymap=$(get_config '.system.locale.keymap' '')
     local actual_keymap
     actual_keymap=$(localectl status | grep "VC Keymap" | awk '{print $3}')
 
@@ -635,19 +639,16 @@ verify_services() {
         fi
     done
 
-    # check display manager if enabled
-    local dm_enabled
-    dm_enabled=$(get_config '.packages.display_manager.enabled' 'false')
+    # every configured display manager should be enabled
     local dm_name
-    dm_name=$(get_config '.packages.display_manager.name' 'sddm')
-
-    if [[ "$dm_enabled" == "true" ]]; then
+    while read -r dm_name; do
+        [[ -z "$dm_name" ]] && continue
         if systemctl is-enabled --quiet "$dm_name"; then
             log_pass "Display manager ($dm_name) is enabled"
         else
             log_fail "Display manager ($dm_name) is NOT enabled"
         fi
-    fi
+    done < <(get_config '.packages.display_manager[]' '')
 
     # check snapper if enabled
     local snapper_enabled
@@ -758,35 +759,33 @@ verify_gpu() {
         fi
     fi
 
-    local gpu_enabled
-    gpu_enabled=$(get_config '.gpu.enabled' 'false')
-
-    if [[ "$gpu_enabled" != "true" ]]; then
-        log_info "GPU driver installation disabled in config"
-        return
-    fi
-
     local gpu_vendor
-    gpu_vendor=$(get_config '.gpu.vendor' '')
+    gpu_vendor=$(get_config '.gpu.vendor' 'none')
     local gpu_driver
     gpu_driver=$(get_config '.gpu.driver' '')
 
+    if [[ "$gpu_vendor" == "none" ]]; then
+        log_info "No GPU vendor configured"
+        return
+    fi
+
     echo ""
-    echo "  Expected: $gpu_vendor / $gpu_driver"
+    echo "  Expected: $gpu_vendor / ${gpu_driver:-vendor default}"
 
     # check loaded kernel modules
     echo ""
     echo "  GPU kernel modules:"
 
-    case "$gpu_driver" in
-        nouveau)
+    # an NVIDIA card without an explicit driver gets the proprietary one
+    case "$gpu_vendor/$gpu_driver" in
+        nvidia/nouveau)
             if lsmod | grep -q "nouveau"; then
                 log_pass "nouveau module loaded"
             else
                 log_fail "nouveau module NOT loaded"
             fi
             ;;
-        nvidia_dkms|nvidia_open)
+        nvidia/*)
             if lsmod | grep -q "nvidia"; then
                 log_pass "nvidia module loaded"
             else

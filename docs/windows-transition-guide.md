@@ -14,13 +14,16 @@ Using separate physical drives for Windows and Arch is the safest approach:
 - Use BIOS boot menu to select OS
 - Password-protect your BIOS settings
 
-### Same Drive
+### Same Drive: not supported
 
-If using a single drive:
+The installer takes over the **whole** target disk: it always creates its own EFI and
+LUKS partitions as partitions 1 and 2, and re-partitions the disk when those are not the
+ones it created. No wipe method (not even `WIPE_METHOD=skip`) preserves a Windows
+installation on the same drive. Put Windows on a separate drive.
 
-1. Shrink Windows partition in Disk Management (leave ≥100GB for Arch)
-2. Disable Windows Fast Startup: Control Panel → Power Options → "Turn on fast startup" → Off
-3. Set `WIPE_METHOD=4` (skip) in installer to preserve Windows
+Whichever drive layout you use, disable Windows Fast Startup (Control Panel → Power
+Options → "Turn on fast startup" → Off) so Windows never leaves shared firmware state
+half-hibernated.
 
 ## BIOS Configuration
 

@@ -38,7 +38,7 @@ btrfs filesystem usage /           # Check actual usage
 **Forgot LUKS password:**
 
 - No recovery possible without password
-- Wipe and reinstall: `WIPE_METHOD=1`
+- Wipe and reinstall: `WIPE_METHOD=quick`
 
 **Slow unlock:**
 

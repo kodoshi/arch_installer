@@ -154,11 +154,12 @@ systemctl --user enable --now dotfiles-sync.timer
 
 ## Environment Variables
 
-| Variable          | Description          | Default                               |
-| ----------------- | -------------------- | ------------------------------------- |
-| `DOTFILES_REPO`   | Repository location  | `~/.dotfiles-repo`                    |
-| `DOTFILES_CONFIG` | Config file path     | `~/.config/dotfiles-sync/config.yaml` |
-| `DOTFILES_NOTIFY` | Enable notifications | `true`                                |
+| Variable                  | Description                           | Default                               |
+| ------------------------- | ------------------------------------- | ------------------------------------- |
+| `DOTFILES_REPO`           | Repository location                   | `~/.dotfiles-repo`                    |
+| `DOTFILES_CONFIG`         | Config file path                      | `~/.config/dotfiles-sync/config.yaml` |
+| `DOTFILES_NOTIFY`         | Enable notifications                  | `true`                                |
+| `DOTFILES_SKIP_SSH_CHECK` | Skip SSH/KeePassXC check (CI/testing) | `false`                               |
 
 ## Desktop Notifications
 
@@ -178,6 +179,9 @@ Disable: `DOTFILES_NOTIFY=false dotfiles-sync.sh push`
 pgrep keepassxc        # Check KeePassXC running
 ssh-add -l             # Check keys loaded
 ssh -T git@github.com  # Test GitHub connection
+
+# skip SSH check entirely (for CI/testing or when using HTTPS)
+DOTFILES_SKIP_SSH_CHECK=true dotfiles-sync push
 ```
 
 **Conflicts during push:**

@@ -6,15 +6,21 @@ title Installer Phase Flow
 
 start
 
-partition "Phase 1: Configuration" {
-    :Load config/config.yaml\n\nParse into DeclaredConfig\n\nPrompt for runtime values (passwords, disk selection);
+partition "Phase 1: Configuration Resolution (cli.py)" {
+    :Model defaults (config/models.py)\n\nconfig/config.yaml, encrypted passwords unlocked\nwith ARCH_INSTALLER_SECRETS_KEY\n\nEnvironment variables (EnvVar);
+    if (NON_INTERACTIVE?) then (no)
+        :TUI: every screen starts on the inherited value,\nEnter keeps it, any other choice overrides it;
+    else (yes)
+    endif
+    :validate_for_install()\n\nInstallerConfig is frozen from here on;
 }
 
-partition "Phase 2: Orchestration" {
-    :StorageProvisioner\n\nPackageInstaller\n\nSystemConfigurator\n\nGpuDriverSetup\n\nUkiGenerator\n\nBootloaderSetup\n\nSnapperSetup\n\nFirewallSetup;
+partition "Phase 2: Orchestration (installer.py)" {
+    :For each enabled Section in PIPELINE:\nMigration staging, Storage, Pacman mirrors, Packages,\nMigration restore, System, Docker, GPU driver,\nKernel images, Bootloader, USB boot drive, Snapper,\nBootable snapshots, Snapshot notifications, Firewall;
+    :Install utility scripts\n\nWrite final_config.yaml (no passwords);
 }
 
-partition "Phase 3: Verification" {
+partition "Phase 3: Verification (after reboot)" {
     :Run verify-install\n\nReport status;
 }
 

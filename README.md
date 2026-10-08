@@ -123,6 +123,7 @@ After installation, you have (by default, unless configured otherwise):
 | [Firewall](docs/firewall.md)                           | UFW setup                             |
 | [Threat Model](docs/threat-model.md)                   | Security analysis                     |
 | [Dotfiles Sync](docs/dotfiles-sync.md)                 | Config file backups                   |
+| [Architecture](docs/architecture.md)                   | C4 views of the system                |
 | [Development](docs/development.md)                     | Project structure, testing, code flow |
 | [Notifications](docs/notifications.md)                 | Built-in desktop notifications        |
 | [Testing](docs/testing.md)                             | Running tests                         |

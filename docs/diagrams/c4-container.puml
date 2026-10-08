@@ -1,0 +1,36 @@
+@startuml c4-container
+!include <C4/C4_Container>
+
+title DALI - Containers
+
+Person(owner, "Owner")
+
+System_Boundary(dali, "DALI") {
+    Container(make, "Makefile", "make", "install, encrypt-secrets, clone_usb_boot, backup_to_usb, verify")
+    Container(installer, "Installer", "Python 3, on the live ISO", "Assembles the configuration, asks the setup questions, runs the install steps")
+    ContainerDb(config, "config.yaml", "YAML", "Declared system and encrypted passwords")
+    Container(tools, "Installed tools", "Bash", "verify-install, manage-snapshot-ukis, dotfiles-sync")
+    Container(hooks, "Hooks and units", "pacman hooks, systemd units, udev rules", "Snapshot UKI refresh, USB boot guard, snapshot catch-up")
+    ContainerDb(expected, "expected-state.env", "Shell assignments", "What the installed system should look like")
+    Container(tests, "QEMU test harness", "pytest, QEMU, OVMF", "Installs and boots the system in virtual machines")
+}
+
+System_Ext(mirrors, "Arch Linux mirrors")
+System_Ext(target, "Target machine and USB boot drive")
+System_Ext(git, "Git server")
+
+Rel(owner, make, "Runs")
+Rel(make, installer, "Starts")
+Rel(installer, config, "Reads")
+Rel(installer, mirrors, "Downloads packages", "pacstrap")
+Rel(installer, target, "Installs onto", "shell commands")
+Rel(installer, tools, "Installs")
+Rel(installer, hooks, "Installs")
+Rel(installer, expected, "Writes")
+Rel(tools, expected, "verify-install reads")
+Rel(hooks, tools, "Run manage-snapshot-ukis")
+Rel(tools, git, "dotfiles-sync pushes and pulls")
+Rel(tests, installer, "Runs in VMs")
+
+SHOW_LEGEND()
+@enduml

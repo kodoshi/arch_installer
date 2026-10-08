@@ -1,4 +1,4 @@
-@startuml DALI_Architecture
+@startuml architecture
 !theme plain
 skinparam classAttributeIconSize 0
 skinparam groupInheritance 2

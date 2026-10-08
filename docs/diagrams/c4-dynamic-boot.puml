@@ -1,0 +1,24 @@
+@startuml c4-dynamic-boot
+!include <C4/C4_Dynamic>
+
+title DALI - Booting from the USB boot drive
+
+Container(firmware, "UEFI firmware", "Secure Boot")
+Container(bootloader, "systemd-boot", "USB drive, partition 1")
+Container(uki, "UKI", "Kernel, initramfs and command line")
+Container(cryptsetup, "systemd-cryptsetup", "In the initramfs")
+ContainerDb(header, "LUKS2 header", "USB drive, partition 2")
+ContainerDb(disk, "Internal disk", "Ciphertext, no partition table")
+Container(system, "Installed system", "BTRFS root")
+ContainerDb(esp, "EFI system partition", "USB drive, partition 1")
+
+Rel(firmware, bootloader, "Checks the signature, starts EFI/BOOT/BOOTX64.EFI")
+Rel(bootloader, uki, "Checks the signature, starts the chosen entry")
+Rel(uki, cryptsetup, "rd.luks.name, rd.luks.data, rd.luks.options=header=")
+Rel(cryptsetup, header, "Reads the key slots, asks for the passphrase")
+Rel(cryptsetup, disk, "Opens /dev/disk/by-id/... as cryptroot")
+Rel(uki, system, "Mounts subvolume @ and switches root")
+Rel(system, esp, "Mounts at /efi on demand, for kernel and snapshot updates")
+
+SHOW_LEGEND()
+@enduml

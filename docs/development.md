@@ -149,26 +149,20 @@ scripts/                        # installed to /usr/local/bin on the target
 └── dotfiles-sync.sh            # dotfiles-sync
 
 docs/
-├── diagrams/
-│   └── architecture.puml       # PlantUML class diagram
+├── diagrams/                   # PlantUML sources: C4 views, class diagram, installer flow
+├── architecture.md             # the C4 views of the system
 ├── development.md              # this file
 └── ...                         # other documentation
 ```
 
 ## Architecture Documentation
 
-### UML Class Diagram
+[Architecture](architecture.md) describes the system with the C4 model: context, containers, the installer's components, the code (the class diagram in `docs/diagrams/architecture.puml`), the deployment of a system with a USB boot drive, and the boot sequence.
 
-A PlantUML class diagram is available at `docs/diagrams/architecture.puml`. It shows:
-
-- The entry points, the config model and how it is resolved
-- The install step registry, the setup session with its front-end port, and the executors
-- The `CommandRunner` port that executors run every command through
-
-To generate the diagram:
+The diagrams are PlantUML sources in `docs/diagrams/`. To render them:
 
 ```bash
-# requires plantuml installed
+# requires plantuml, which includes the C4-PlantUML library
 make diagrams
 ```
 

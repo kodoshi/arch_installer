@@ -1,0 +1,24 @@
+@startuml c4-context
+!include <C4/C4_Context>
+
+title DALI - System Context
+
+Person(owner, "Owner", "Declares the system in config.yaml, installs it and uses the machine")
+
+System(dali, "DALI", "Installs a declared, encrypted Arch Linux desktop and keeps it verifiable and recoverable")
+
+System_Ext(iso, "Arch Linux ISO", "Live environment the installer runs on; source of the recovery system")
+System_Ext(machine, "Target machine", "UEFI firmware with Secure Boot, internal disk")
+System_Ext(stick, "USB boot drive", "Optional USB stick: EFI partition, LUKS header, recovery system")
+System_Ext(mirrors, "Arch Linux mirrors", "Packages for the installation and later updates")
+System_Ext(git, "Git server", "Dotfiles repository")
+
+Rel(owner, dali, "Writes config.yaml, answers the setup questions")
+Rel(dali, iso, "Runs on")
+Rel(dali, machine, "Partitions, encrypts, installs, enrolls Secure Boot keys")
+Rel(dali, stick, "Prepares; puts boot files and the LUKS header on")
+Rel(dali, mirrors, "Downloads packages from")
+Rel(dali, git, "Pushes and pulls dotfiles", "dotfiles-sync")
+
+SHOW_LEGEND()
+@enduml

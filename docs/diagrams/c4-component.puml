@@ -1,0 +1,43 @@
+@startuml c4-component
+!include <C4/C4_Component>
+
+title DALI - Components of the installer
+
+ContainerDb(config, "config.yaml", "YAML")
+System_Ext(shell, "Live ISO shell and target chroot", "Commands run by the installer")
+
+Container_Boundary(installer, "Installer") {
+    Component(cli, "Entry points", "cli.py", "arch-installer, clone-usb-boot, usb-backup, secrets commands")
+    Component(environment, "Environment", "config/environment.py", "Reads the environment variables that are set")
+    Component(config_file, "Config file reader", "config/config_file.py", "Flattens config.yaml into setting values, unlocks passwords")
+    Component(precedence, "Value precedence", "config/value_precedence.py", "Environment over config.yaml; answers over both")
+    Component(builder, "Config builder", "config/installer_config_builder.py", "Builds the frozen InstallerConfig, reports missing settings")
+    Component(secrets, "Secrets crypto", "core/secrets.py", "Argon2id and AES-256-GCM")
+    Component(registry, "Install step registry", "install_steps/", "Each step's settings, questions, condition and executor, in run order")
+    Component(session, "Setup session", "setup/session.py", "Asks the steps' questions in order")
+    Component(frontend_port, "SetupFrontend port", "setup/frontend.py", "One method per question kind")
+    Component(tui, "Curses front-end", "tui/", "Renders the questions in a terminal")
+    Component(orchestrator, "Installer", "installer.py", "Runs the enabled steps, writes the installed system's files")
+    Component(executors, "Step executors", "executors/", "One per install step: storage, packages, kernel images, USB boot drive...")
+    Component(runner, "Command runner", "core/command.py", "Runs shell commands; a fake records them in tests")
+}
+
+Rel(cli, environment, "Uses")
+Rel(cli, config_file, "Uses")
+Rel(config_file, config, "Reads")
+Rel(config_file, secrets, "Decrypts passwords with")
+Rel(cli, precedence, "Inherits values with")
+Rel(cli, tui, "Starts, when interactive")
+Rel(tui, session, "Runs")
+Rel(session, registry, "Walks")
+Rel(session, frontend_port, "Asks through")
+Rel_U(tui, frontend_port, "Implements")
+Rel(cli, builder, "Builds InstallerConfig with")
+Rel(cli, orchestrator, "Runs")
+Rel(orchestrator, registry, "Runs the enabled steps of")
+Rel(orchestrator, executors, "Executes")
+Rel(executors, runner, "Run commands through")
+Rel(runner, shell, "Executes in")
+
+SHOW_LEGEND()
+@enduml

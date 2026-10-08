@@ -1,0 +1,42 @@
+@startuml c4-deployment
+!include <C4/C4_Deployment>
+
+title DALI - Deployment of an installed system with a USB boot drive
+
+Deployment_Node(machine, "Target machine") {
+    Deployment_Node(disk, "Internal disk", "No partition table") {
+        Deployment_Node(luks, "LUKS2 data", "Ciphertext from byte 0, header detached") {
+            Deployment_Node(btrfs, "BTRFS subvolumes", "@, @home, @snapshots, ...") {
+                Container(system, "Installed Arch system", "systemd", "Desktop, snapper, pacman hooks, verify-install")
+            }
+        }
+    }
+    Deployment_Node(firmware, "UEFI firmware", "NVRAM") {
+        Container(keys, "Secure Boot keys", "PK, KEK, db from sbctl", "No boot entry, no systemd-boot system token")
+    }
+}
+
+Deployment_Node(stick, "USB boot drive") {
+    Deployment_Node(esp, "Partition 1", "EFI system partition, vfat") {
+        Container(bootloader, "systemd-boot", "Signed EFI binary", "Started through EFI/BOOT/BOOTX64.EFI")
+        Container(ukis, "UKIs", "Signed", "Each kernel and variant, bootable snapshots")
+        Container(recovery_uki, "Recovery UKI", "Signed", "ISO kernel and initramfs, own certificate")
+    }
+    Deployment_Node(header_partition, "Partition 2", "Raw") {
+        ContainerDb(header, "LUKS2 header", "Key slots, Argon2id parameters")
+    }
+    Deployment_Node(recovery_partition, "Partition 3 (optional)", "ext4") {
+        Container(live_system, "Arch live system", "ISO arch/ tree", "Root image re-signed at installation")
+    }
+}
+
+Rel_R(keys, bootloader, "Verify")
+Rel(bootloader, ukis, "Lists and starts")
+Rel(bootloader, recovery_uki, "Lists and starts")
+Rel(ukis, header, "Read")
+Rel(ukis, system, "Unlock and boot")
+Rel(recovery_uki, live_system, "Verifies and boots")
+Rel(system, ukis, "Rebuilds on updates", "/efi mounted on demand")
+
+SHOW_LEGEND()
+@enduml

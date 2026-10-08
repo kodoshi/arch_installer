@@ -40,8 +40,8 @@ class TestEnvironmentSettingValues:
 
         assert values["packages.selected_desktops"] == (Desktop.GNOME, Desktop.KDE)
 
-    def test_skip_swap_turns_swap_off(self):
-        values = environment(SKIP_SWAP="true").setting_values()
+    def test_enable_swap_false_turns_swap_off(self):
+        values = environment(ENABLE_SWAP="false").setting_values()
 
         assert values["storage.swap.enabled"] is False
 

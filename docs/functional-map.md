@@ -1,6 +1,6 @@
 # DALI (Declarative ArchLinux Installer) — Comprehensive Functional Map
 
-> Module inventory, test tables and import graphs are generated from the code (Python AST); the overview and data flow are written by hand. Total: ~13,647 lines (4,906 source, 6,185 tests, 2,556 shell scripts).
+> Module inventory, test tables and import graphs are generated from the code (Python AST); the overview and data flow are written by hand. Total: ~13,774 lines (4,833 source, 6,385 tests, 2,556 shell scripts).
 
 ---
 
@@ -50,7 +50,7 @@ DALI is a **declarative, deterministic, idempotent** Arch Linux installer that:
 
 - Python 3.13+, Poetry, PyYAML, cryptography (AES-256-GCM for secrets)
 - Dev: pytest, pytest-cov, pytest-xdist, pytest-timeout, ruff, docker (unused)
-- 4,906 lines of source code, 6,185 lines of tests, 2,556 lines of shell scripts
+- 4,833 lines of source code, 6,385 lines of tests, 2,556 lines of shell scripts
 
 ---
 
@@ -202,17 +202,16 @@ Config.yaml as a source of setting values.
 
 ---
 
-#### `config/environment.py` (182 lines)
+#### `config/environment.py` (178 lines)
 
 Environment variables: their names, how their text is read, and which setting each one provides.
 
 | Name | Kind | Details |
 | ---- | ---- | ------- |
-| `EnvVariable` | enum | `CONFIG_PATH`, `NON_INTERACTIVE`, `VERBOSE`, `NO_WRITE`, `SECRETS_KEY`, `LUKS_PASSWORD`, `USER_PASSWORD`, `SOURCE_LUKS_PASSWORD`, `TARGET_DISK`, `WIPE_METHOD`, `SWAP_SIZE_MB`, `SKIP_SWAP`, `ENABLE_HIBERNATION`, `ENABLE_SNAPSHOT_BOOT`, `ENABLE_FIREWALL`, `ENABLE_DOCKER`, `ENABLE_NOTIFICATIONS`, `ENABLE_MIGRATION`, `ENABLE_USB_BOOT`, `USB_BOOT_DEVICE`, `ISO_PATH`, `BACKUP_CATEGORIES`, `CPU_VENDOR`, `GPU_VENDOR`, `GPU_DRIVER`, `SELECTED_KERNELS`, `SELECTED_DESKTOPS` |
+| `EnvVariable` | enum | `CONFIG_PATH`, `NON_INTERACTIVE`, `VERBOSE`, `NO_WRITE`, `SECRETS_KEY`, `LUKS_PASSWORD`, `USER_PASSWORD`, `SOURCE_LUKS_PASSWORD`, `TARGET_DISK`, `WIPE_METHOD`, `SWAP_SIZE_MB`, `ENABLE_SWAP`, `ENABLE_HIBERNATION`, `ENABLE_SNAPSHOT_BOOT`, `ENABLE_FIREWALL`, `ENABLE_DOCKER`, `ENABLE_NOTIFICATIONS`, `ENABLE_MIGRATION`, `ENABLE_USB_BOOT`, `USB_BOOT_DEVICE`, `ISO_PATH`, `BACKUP_CATEGORIES`, `CPU_VENDOR`, `GPU_VENDOR`, `GPU_DRIVER`, `SELECTED_KERNELS`, `SELECTED_DESKTOPS` |
 | `_split_list()` | function | `_split_list(raw) -> tuple[str, ...]` |
 | `read_text()` | function | `read_text(variable, raw) -> str` |
 | `read_flag()` | function | `read_flag(variable, raw) -> bool` |
-| `read_inverted_flag()` | function | `read_inverted_flag(variable, raw) -> bool` |
 | `read_number()` | function | `read_number(variable, raw) -> int` |
 | `read_names()` | function | `read_names(variable, raw) -> tuple[str, ...]` |
 | `_parse_choice()` | function | `_parse_choice(variable, choice_type, raw) -> ChoiceT` |
@@ -648,7 +647,7 @@ Interactive installation setup.
 
 ---
 
-#### `tui/widgets.py` (563 lines)
+#### `tui/widgets.py` (494 lines)
 
 Curses widget primitives for the TUI installer.
 
@@ -657,10 +656,15 @@ Curses widget primitives for the TUI installer.
 | `MenuOption` | dataclass | fields: `value`, `label` |
 | `Inherited` | dataclass | fields: `value`, `source` |
 | `Toggle` | dataclass | fields: `key`, `label`, `inherited` |
+| `RowStyle` | enum | `PLAIN`, `MARKED`, `HEADING` |
+| `ListRow` | dataclass | fields: `text`, `style` |
 | `init_colors()` | function | `init_colors() -> None` |
 | `_draw_title()` | function | `_draw_title(window, title) -> None` |
 | `_draw_help()` | function | `_draw_help(window, help_text) -> None` |
 | `_inherited_tag()` | function | `_inherited_tag(inherited) -> str` |
+| `_row_attributes()` | function | `_row_attributes(style) -> int` |
+| `_draw_list()` | function | `_draw_list(window, title, description, help_text, row_count, cursor, draw_row, status, show_cursor) -> int` |
+| `run_list()` | function | `run_list(window, title, help_text, row_count, draw_row, handle_key, start_row, description, status, show_cursor) -> int` |
 | `radio_menu()` | function | `radio_menu(window, title, options, inherited, description) -> str` |
 | `checkbox_menu()` | function | `checkbox_menu(window, title, options, inherited, description) -> list[str]` |
 | `TextEntry` | dataclass | fields: `inherited`, `required`, `typed`, `error`; methods: `press()`, `_submit()` |
@@ -668,9 +672,9 @@ Curses widget primitives for the TUI installer.
 | `_draw_text_entry()` | function | `_draw_text_entry(window, title, prompt, entry, masked) -> None` |
 | `text_input()` | function | `text_input(window, title, prompt, inherited, required, masked) -> str` |
 | `password_input_with_confirm()` | function | `password_input_with_confirm(window, title, prompt) -> str` |
+| `_summary_rows()` | function | `_summary_rows(items) -> list[ListRow]` |
 | `confirm_screen()` | function | `confirm_screen(window, title, items) -> bool` |
 | `_toggle_line()` | function | `_toggle_line(toggle, state) -> str` |
-| `_flipped()` | function | `_flipped(state) -> bool` |
 | `toggle_menu()` | function | `toggle_menu(window, title, toggles, description) -> dict[str, bool]` |
 | `info_screen()` | function | `info_screen(window, title, message) -> None` |
 | constants | - | `KEY_ESCAPE`, `KEY_TAB`, `KEY_SPACE`, `KEY_Q`, `ENTER_KEYS`, `BACKSPACE_KEYS`, `PRINTABLE_KEYS`, `BORDER_PAD`, `TITLE_ROW`, `CONTENT_START`, `HELP_ROW_OFFSET` |
@@ -795,7 +799,7 @@ Expected values come from `/etc/dali/expected-state.env`, written by the install
 | `test_snapper.py` | 52 | `TestSnapperExecutor`, `TestSnapshotBootExecutor` (6 tests) | `config.models`, `executors.snapper` |
 | `test_storage.py` | 67 | `TestStorageExecutor` (5 tests) | `config.models`, `executors.storage` |
 | `test_system.py` | 67 | `TestSystemTemplates`, `TestSystemExecutor` (7 tests) | `config.models`, `executors.system` |
-| `test_tui.py` | 103 | `TestTextEntry`, `TestSwapSizeOptions` (12 tests) | `tui.app`, `tui.widgets` |
+| `test_tui.py` | 103 | `TestTextEntry`, `TestSwapSizeOptions`, `TestRadioMenu`, `TestCheckboxMenu`, `TestToggleMenu`, `TestSummaryScreen` (27 tests) | `tui.app`, `tui.widgets` |
 | `test_usb_backup.py` | 81 | `TestPackageCatalog`, `TestUsbBackupExecutor` (7 tests) | `config.models`, `core.command`, `executors.usb_backup` |
 | `test_usb_boot.py` | 81 | `TestUsbPartitionPaths`, `TestUsbBootDriveProvisioning`, `TestUsbBootExecutor` (7 tests) | `config.models`, `executors.usb_boot` |
 | `test_value_precedence.py` | 62 | `TestInheritance`, `TestTuiChoices` (8 tests) | `config.value_precedence` |
@@ -810,7 +814,7 @@ Full end-to-end tests running the installer in QEMU VMs with UEFI Secure Boot.
 | ---- | ----- | ------- |
 | `vm.py` | 588 | `QemuVm`: VM lifecycle (setup, start, stop, reboot with LUKS passphrase over serial), SSH/SCP via sshpass, console typing via monitor `sendkey`. OVMF/QEMU/sshpass discovery, `wait_for_vm_boot_and_network()` |
 | `conftest.py` | 237 | Fixtures `qemu_vm_with_network`, `qemu_vm_with_usb_disk_and_network`, `package_cache_proxy`, config fixtures. Options `--arch-iso`, `--qemu-memory`, `--qemu-cpus`, `--qemu-disk-size`, `--qemu-work-dir`, `--qemu-display`, `--keep-vm`, `--package-cache-dir`, `--offline-mode`. Per-xdist-worker SSH port ranges |
-| `assertions.py` | 1261 | `InstallationAssertions`: soft assertions (each prints ✓/✗, `raise_if_failed()` at the end) for partitions, LUKS, BTRFS, boot/UKI, secure boot, ESP random seed, system config, swap/hibernation, snapper, services, USB drive and backup |
+| `assertions.py` | 1274 | `InstallationAssertions`: soft assertions (each prints ✓/✗, `raise_if_failed()` at the end) for partitions, LUKS, BTRFS, boot/UKI, secure boot, ESP random seed, system config, swap/hibernation, snapper, services, USB drive and backup |
 | `tmux_driver.py` | 80 | `TmuxSession`, `TmuxScreenInput`: runs a curses program in tmux on the VM, waits for each screen in the rendered pane, sends keys, and collects the exit code |
 | `package_cache.py` | 258 | `PackageCacheProxy`: local HTTP proxy caching pacman packages (fixture exists, no test uses it yet) |
 | `ssh_config.py` | 44 | Commands run before rebooting into the installed system: root SSH login, sshd, a ufw rule for port 22 (test access only), NetworkManager, serial console |

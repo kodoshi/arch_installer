@@ -143,7 +143,7 @@ storage:
     enabled: false
 ```
 
-Or at runtime: `SKIP_SWAP=true make install`
+Or at runtime: `ENABLE_SWAP=false make install`
 
 ## Boot Configuration
 
@@ -385,7 +385,7 @@ The settings below can also come from environment variables. A variable that is 
 | `TARGET_DISK`      | Target disk (e.g., `/dev/nvme0n1`)                              | `storage.target_disk`    |
 | `WIPE_METHOD`      | Disk wipe method: `quick`, `secure`, `discard`, `skip`          | `storage.wipe_method`    |
 | `SWAP_SIZE_MB`     | Swapfile size in MB                                             | `storage.swap.size_mb`   |
-| `SKIP_SWAP`        | `true` creates no swapfile                                      | `storage.swap.enabled`   |
+| `ENABLE_SWAP`      | `false` creates no swapfile                                     | `storage.swap.enabled`   |
 | `SELECTED_KERNELS` | Comma-separated kernel packages from `boot.kernels` (e.g., `linux-lts`) | `boot.selected_kernels` |
 
 ### Passwords and Secrets

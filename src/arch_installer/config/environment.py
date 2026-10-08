@@ -36,7 +36,7 @@ class EnvVariable(StrEnum):
     TARGET_DISK = "TARGET_DISK"
     WIPE_METHOD = "WIPE_METHOD"
     SWAP_SIZE_MB = "SWAP_SIZE_MB"
-    SKIP_SWAP = "SKIP_SWAP"
+    ENABLE_SWAP = "ENABLE_SWAP"
     ENABLE_HIBERNATION = "ENABLE_HIBERNATION"
     ENABLE_SNAPSHOT_BOOT = "ENABLE_SNAPSHOT_BOOT"
     ENABLE_FIREWALL = "ENABLE_FIREWALL"
@@ -68,10 +68,6 @@ def read_flag(variable: EnvVariable, raw: str) -> bool:
     if raw.lower() in FALSE_WORDS:
         return False
     raise ConfigurationError(f"{variable} must be true or false, got {raw!r}")
-
-
-def read_inverted_flag(variable: EnvVariable, raw: str) -> bool:
-    return not read_flag(variable, raw)
 
 
 def read_number(variable: EnvVariable, raw: str) -> int:
@@ -123,7 +119,7 @@ ENVIRONMENT_SETTINGS = (
     EnvironmentSetting(EnvVariable.TARGET_DISK, "storage.target_disk", read_text),
     EnvironmentSetting(EnvVariable.WIPE_METHOD, "storage.wipe_method", read_choice(WipeMethod)),
     EnvironmentSetting(EnvVariable.SWAP_SIZE_MB, "storage.swap.size_mb", read_number),
-    EnvironmentSetting(EnvVariable.SKIP_SWAP, "storage.swap.enabled", read_inverted_flag),
+    EnvironmentSetting(EnvVariable.ENABLE_SWAP, "storage.swap.enabled", read_flag),
     EnvironmentSetting(EnvVariable.ENABLE_HIBERNATION, "storage.swap.hibernation", read_flag),
     EnvironmentSetting(EnvVariable.ENABLE_SNAPSHOT_BOOT, "boot.enable_snapshot_boot", read_flag),
     EnvironmentSetting(EnvVariable.SELECTED_KERNELS, "boot.selected_kernels", read_names),

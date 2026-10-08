@@ -18,11 +18,11 @@ sudo verify-install
 
 ## What It Compares Against
 
-At the end of an installation the installer writes `/etc/dali/expected-state.env`: the values the installed system should have (hostname, timezone, locale, keymap, user, swap, kernel packages, display managers, snapper, firewall, GPU), rendered from the final configuration as shell assignments, without any secrets. `verify-install` sources that file, so it needs no YAML parser on the target.
+At the end of an installation the installer writes `/etc/dali/expected-state.env` with the values the installed system should have (hostname, timezone, locale, keymap, user, swap, kernel packages, display managers, snapper, firewall, GPU, USB boot drive), rendered from the final configuration as shell assignments, without any secrets. `verify-install` sources that file, so it needs no YAML parser on the target.
 
 Because the script runs as root and sources the file, it refuses a file not owned by root or writable by anyone else. Without the file it still runs every check that needs no expectation, and reports a warning that the configuration-dependent checks were skipped.
 
-The maximal QEMU test runs `verify-install` after rebooting into the installed system and requires zero failures.
+The maximal QEMU test and the USB boot drive test run `verify-install` after rebooting into the installed system and require zero failures.
 
 ## What It Checks
 
@@ -40,6 +40,7 @@ The maximal QEMU test runs `verify-install` after rebooting into the installed s
 | **Kernel Params** | Hardening (lockdown, IOMMU, PTI, Spectre mitigations)                |
 | **GPU**           | Configured driver loaded, GPU detected                               |
 | **Packages**      | Essential packages, kernels, CPU microcode                           |
+| **USB boot drive** | Only with one: no partition table or signature on the internal disk, `/efi` mounted on demand, the pacman guard, the signed recovery UKI |
 
 ## Example Output
 

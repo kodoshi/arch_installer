@@ -26,7 +26,7 @@ arch_installer/
 
 ### Using Make (Recommended)
 
-The Makefile provides the canonical entry point:
+The Makefile is the usual way in:
 
 ```bash
 make install          # Full installation: deps + run
@@ -46,7 +46,7 @@ NON_INTERACTIVE=true make install
 Never type a secret into a command line, see [Keeping secrets out of ps and shell history](configuration.md#keeping-secrets-out-of-ps-and-shell-history).
 
 Every variable is listed in the [Configuration reference](configuration.md#environment-variables).
-Their names live in one place in the code: the `EnvVariable` enum in `config/environment.py`.
+In the code, the names are defined once, in the `EnvVariable` enum in `config/environment.py`.
 
 ### Direct Python Execution
 
@@ -72,7 +72,7 @@ python -m arch_installer.cli
 
 #### Phase 1: Configuration Assembly
 
-`cli.assemble_installer_config()` reads it top to bottom:
+`cli.assemble_installer_config()` builds the configuration in five steps:
 
 1. `Environment.setting_values()`: the settings provided by environment variables that are set. Which variable provides which setting is declared with the install steps (`install_steps/registry.py`), and the text is read as the type the model declares for that setting
 2. `config_file_setting_values()`: `config.yaml` flattened into setting paths such as `storage.swap.size_mb`, with its encrypted passwords unlocked by `ARCH_INSTALLER_SECRETS_KEY` (`config/config_file.py`)
@@ -80,11 +80,11 @@ python -m arch_installer.cli
 4. interactive only: the setup session (`setup/session.py`) walks the install steps and asks each question through a front-end, showing the inherited value with its source; `apply_tui_choices()` lets the answers win
 5. `build_installer_config()`: the values become the frozen `InstallerConfig`; every field must have a value, and all settings no source provided are reported together (`config/installer_config_builder.py`)
 
-The result is validated (`validate_for_install`) and is immutable from then on. Nothing comes from code: the model has no defaults to fall back on.
+The result is validated (`validate_for_install`) and is immutable from then on. No value comes from the code, because the model has no defaults.
 
 #### Phase 2: Orchestration
 
-`install_steps/registry.py` holds `INSTALL_STEPS`, a dict from `InstallStep` to `StepWiring`, in the order the steps run. Each `StepWiring` lists the step's config.yaml sections, its settings (`StepSetting`: config key, environment variable, question), the condition under which it runs and its executor class. The `Installer` runs the executor of every step whose condition holds; every executor receives the same finished `InstallerConfig`, so a choice is decided in exactly one place: the config.
+`install_steps/registry.py` holds `INSTALL_STEPS`, a dict from `InstallStep` to `StepWiring`, in the order the steps run. Each `StepWiring` lists the step's config.yaml sections, its settings (`StepSetting`: config key, environment variable, question), the condition under which it runs and its executor class. The `Installer` runs the executor of each step whose condition holds. All executors get the same finished `InstallerConfig`, so each choice is made once, in the config.
 
 #### Phase 3: Command Execution
 
@@ -95,7 +95,7 @@ Each executor uses a `CommandRunner` to execute shell commands. This abstraction
 
 ### One Config Model
 
-There is a single frozen dataclass tree, `InstallerConfig`, and it has no field defaults (the one exception, `UsbBootConfig`, keeps them only for a unit test and the builder still requires every field). Values are addressed by their dotted path in the model while they are being assembled, and become the model once, at the end, so every executor and the generated `final_config.yaml` see the values that were actually installed. Passwords live in `InstallerConfig.credentials` and are left out of `final_config.yaml` by `exportable_config()`.
+There is a single frozen dataclass tree, `InstallerConfig`, with no defaults. Values are addressed by their dotted path in the model while they are being assembled, and become the model once at the end, so every executor and the generated `final_config.yaml` see the values that were actually installed. Passwords live in `InstallerConfig.credentials` and are left out of `final_config.yaml` by `exportable_config()`.
 
 ## File Layout
 
@@ -151,7 +151,6 @@ scripts/                        # installed to /usr/local/bin on the target
 docs/
 ├── diagrams/
 │   └── architecture.puml       # PlantUML class diagram
-├── functional-map.md           # every entry point, module and test, mapped
 ├── development.md              # this file
 └── ...                         # other documentation
 ```
@@ -173,17 +172,13 @@ To generate the diagram:
 make diagrams
 ```
 
-### Functional Map
-
-`docs/functional-map.md` maps every entry point, module, config section and test to what it does. `docs/code-analysis.md` is a historical analysis of the code before the restructure and no longer matches it.
-
 ## Adding a New Step
 
 1. Add its config section to `config/models.py` (a frozen dataclass, no defaults) and a field for it on `InstallerConfig`
 2. Add the section with every key to `config/config.yaml` and the configs in `tests/data/` (the builder refuses a config that lacks any of them)
-3. Create `executors/new_step.py` with an executor class (`NewStepStepExecutor`) implementing `execute()`
-4. Add a member to `InstallStep` and its `StepWiring` to `INSTALL_STEPS`, at the position it should run: its config sections, its settings with their environment variable and question, the condition and the executor
-5. Write tests in `tests/unit/test_new_step.py`; `tests/unit/test_install_steps.py` checks the registry stays complete
+3. Create `executors/new_foo.py` with an executor class (`NewFooStepExecutor`) implementing `execute()`
+4. Add a member to `InstallStep` and its `StepWiring` to `INSTALL_STEPS`, at the position where it should run, with its config sections, its settings (environment variable and question), the condition and the executor
+5. Write tests in `tests/unit/test_new_foo.py`; `tests/unit/test_install_steps.py` checks the registry stays complete
 6. Add assertions in the main QEMU tests in `tests/qemu/test_installation.py` (if applicable)
 
 ## Adding a Front-end
@@ -250,7 +245,7 @@ This script launches a QEMU VM with:
 | `--keep`           | Keep VM files after exit                                          |                                   |
 | `--headless`       | Run without VNC display (SSH only)                                |                                   |
 
-The internal disk carries a serial number, so it has a `/dev/disk/by-id` name like a real disk: the USB boot drive needs it.
+The script gives the internal disk a serial number, so it gets a `/dev/disk/by-id` name like a real disk. The USB boot drive needs that name.
 
 **Example:**
 
@@ -287,12 +282,7 @@ ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null root@localhost -
 # Connect to localhost:5950 (or your configured vnc-port + 5900)
 ```
 
-**Post-installation steps:**
-
-1. Reboot the VM into the installed system
-2. The system will be in secure boot setup mode
-3. Enroll your keys with: `sbctl enroll-keys --microsoft`
-4. Reboot again - secure boot is now active
+**After the installation:** power off the VM, then start it again with `--no-iso` (use `--keep` on both runs) to boot the installed system. The installer has already enrolled its Secure Boot keys, so Secure Boot is active from the first boot.
 
 ## Contributing
 

@@ -1,10 +1,6 @@
 # Secrets Management with KeePassXC
 
-A comprehensive guide to managing SSH keys, GPG keys, and other secrets using KeePassXC, with cross-device synchronization via Syncthing.
-
-## Overview
-
-Instead of typing passwords repeatedly, KeePassXC can manage all your secrets with a single master password. This guide covers:
+How to keep SSH keys, GPG keys and other secrets in KeePassXC, and sync the database to other devices with Syncthing. KeePassXC keeps everything behind one master password. This guide covers:
 
 - SSH key management via ssh-agent integration
 - Cross-device sync with Syncthing and KeePassDX (Android)
@@ -12,7 +8,7 @@ Instead of typing passwords repeatedly, KeePassXC can manage all your secrets wi
 
 ## Installation
 
-KeePassXC is included in the `base` package profile of this installer, but can also be installed manually:
+KeePassXC is in the installer's default package list (`packages.base`). To install it by hand:
 
 ```bash
 sudo pacman -S keepassxc
@@ -119,9 +115,7 @@ Update KeePassXC to open from the new location.
 
 ## Auto-Lock When Screen Locks
 
-### Why This Matters
-
-If your computer is stolen while KeePassXC is unlocked, all secrets are exposed. Auto-locking ensures secrets are cleared from memory when you're away.
+If the computer is stolen while KeePassXC is unlocked, everything in the database is exposed. Locking the database together with the screen clears the secrets from memory.
 
 ### Configure KeePassXC
 

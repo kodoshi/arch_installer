@@ -16,7 +16,7 @@ Using separate physical drives for Windows and Arch is the safest approach:
 
 ### Same Drive: not supported
 
-The installer takes over the **whole** target disk: it always creates its own EFI and
+The installer takes over the **whole** target disk. It always creates its own EFI and
 LUKS partitions as partitions 1 and 2, and re-partitions the disk when those are not the
 ones it created. No wipe method (not even `WIPE_METHOD=skip`) preserves a Windows
 installation on the same drive. Put Windows on a separate drive.

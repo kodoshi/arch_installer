@@ -1,6 +1,6 @@
 # Package Cache Proxy (Work In Progress)
 
-The test suite includes a local package cache proxy that ensures reproducible installations by serving packages from a controlled cache rather than upstream mirrors.
+The test suite has a local package cache proxy. It serves packages to the test VMs from a local cache instead of the upstream mirrors, so repeated runs install the same package versions.
 
 ## How It Works
 
@@ -13,12 +13,9 @@ The test suite includes a local package cache proxy that ensures reproducible in
    - **If not cached**: Fetch from upstream, cache, then serve
 4. In **offline mode**: Only cached packages are served; missing packages fail the request
 
-## Benefits
+## Why
 
-- **Reproducibility**: Same package versions across test runs
-- **Speed**: Subsequent test runs use cached packages
-- **Offline Testing**: Run tests without network access
-- **CI-Friendly**: Pre-cache packages to avoid network dependencies in CI
+Repeated runs get the same package versions and don't download them again. With a filled cache the tests can run offline, which also helps on CI runners without network access.
 
 ## Usage
 
@@ -184,4 +181,4 @@ For fully offline Python package testing, you would need to:
 2. Copy it to the VM
 3. Use `pip install --no-index --find-links=/path/to/wheelhouse`
 
-This is not currently implemented but could be added for stricter reproducibility.
+This is not implemented yet.

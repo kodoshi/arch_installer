@@ -118,7 +118,7 @@ KDE configs are partially tracked:
 | `~/.config/plasma-org.kde.plasma.desktop-appletsrc` | Panel layout, widgets       |
 | `~/.config/kglobalshortcutsrc`                      | Keyboard shortcuts          |
 
-**Note**: Some KDE settings (like dock icons, desktop icons positions) are stored in other locations and will not sync perfectly.
+Some KDE settings, like dock icons and desktop icon positions, are stored elsewhere and don't sync.
 
 ### GNOME
 

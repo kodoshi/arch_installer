@@ -1,6 +1,6 @@
 # Threat Model
 
-This document outlines the security threats this installer defends against and areas for future improvement.
+What the installer defends against, what it doesn't, and what could come next.
 
 ## Scope
 
@@ -99,18 +99,25 @@ This document outlines the security threats this installer defends against and a
 1. **Passphrase Strength**: Security depends on LUKS passphrase entropy
 2. **TPM Not Used**: Since this installer is meant to be dual-boot friendly, TPM is not used, since it heavily clashes with Windows BitLocker.
 3. **AppArmor/SELinux**: Not configured by default
-5. **User Applications**: Flatpak/Firejail sandboxing not enforced
-6. **SMT Disabled**: Some mitigations disable hyperthreading (performance impact)
+4. **User Applications**: Flatpak/Firejail sandboxing not enforced
+5. **SMT Disabled**: Some mitigations disable hyperthreading (performance impact)
 
 ## Future Improvements
 
-The USB boot drive ([usb-boot.md](usb-boot.md)) provides plausible deniability for the disk itself: the LUKS header and the boot chain live on the drive, and the disk holds ciphertext in random data that nothing identifies.
+The USB boot drive ([usb-boot.md](usb-boot.md)) already makes the disk itself deniable. The LUKS header and the boot files live on the stick, and the disk holds nothing but ciphertext in random data.
 
 **TODO**: Hidden volumes and a decoy OS, with plausible decoy content.
 
-LUKS has no hidden volumes: its headers are statically structured, and detectable wherever they are stored. This metadata is not considered part of the encrypted volume, so an adversary can read it, list keyslots, and see volume sizes.
+LUKS has no hidden volume feature. A LUKS header is a fixed, recognizable structure wherever it is stored, and it is not encrypted, so anyone holding it can read the cipher and KDF settings, list the key slots in use and see where the data segment starts. With the USB boot drive, that means whoever holds the stick, not whoever holds the disk.
 
-VeraCrypt implements hidden volumes but is not ideal for Linux systems, since it's in userspace and not natively supported (not managed by systemd, initramfs, no bootloader integration).
+Detached headers do allow a hidden volume built by hand: a second LUKS volume at an offset inside the first one's free space, with its header kept apart from the first one's. Nothing stops the outer system from writing over the hidden volume, so the outer volume has to be used carefully or read-only.
+
+VeraCrypt has hidden volumes, and its headers are encrypted, so a VeraCrypt volume looks like random data even without a detached header. Linux can unlock one at boot: cryptsetup opens VeraCrypt volumes, hidden ones included, through the kernel's dm-crypt, and systemd-cryptsetup supports them in crypttab (`tcrypt-veracrypt`, `tcrypt-hidden`, `veracrypt-pim=`), which an initramfs reads from `/etc/crypttab.initramfs`. What is missing for this installer:
+
+- cryptsetup cannot create VeraCrypt volumes, only open them, so the installer would need the VeraCrypt tool to format the disk.
+- The `rd.luks.*` kernel parameters the UKIs use don't apply to VeraCrypt volumes.
+- VeraCrypt's decoy operating system ("hidden operating system") exists only for Windows.
+- Mounting the outer volume without VeraCrypt's hidden volume protection can destroy the hidden one.
 
 | Priority | Improvement                    | Benefit                           |
 | -------- | ------------------------------ | --------------------------------- |

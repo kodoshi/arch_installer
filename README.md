@@ -13,20 +13,35 @@ An opinionated, declarative, idempotent Arch Linux desktop installer with a focu
 | **LUKS2 Encryption**    | Full disk encryption with argon2id                               |
 | **BTRFS Snapshots**     | 12 subvolumes, **BOOTABLE** snapshots, automatic cleanup         |
 | **Secure Boot**         | Unified Kernel Images, systemd-boot, mkinitcpio, sbctl signing   |
-| **Security Hardening**  | Kernel hardening, CPU mitigations, firewall                      |
-| **Migration Support**   | Migrate existing Arch installs, preserve home & Secure Boot keys |
+| **Plausibly Deniable Encryption** | Optional USB boot drive: the disk holds only random-looking ciphertext, with no partition table, LUKS header or bootloader |
+| **Security Hardening**  | Kernel hardening, CPU mitigations, firewall config                      |
+| **Migration Support**   | Migrate existing Arch installs, preserve /home & Secure Boot keys |
 | **Multiple Kernels**    | linux-hardened, mainline, LTS with variants                      |
 | **Multi-Desktop**       | GNOME, KDE, Hyprland - install one or all                        |
 | **Dual-Boot Ready**     | Windows-friendly (separate drives recommended)                   |
 | **Hibernation Support** | Resume from swapfile on encrypted root                           |
 | **Dotfiles Sync**       | Git backups of config files                                      |
 
+## Plausibly Deniable Encryption
+
+With the optional USB boot drive, nothing on the internal disk shows that it holds an encrypted system. The disk has no partition table, no LUKS header and no bootloader, only ciphertext in random data from the first byte to the last. To `fdisk`, `blkid` or a forensic scan it looks like a disk that was wiped with random data, and without the stick the machine has nothing to boot.
+
+The USB stick carries everything needed to start and unlock the system:
+
+- the EFI partition, with systemd-boot and the signed UKIs for every kernel, variant and bootable snapshot
+- the detached LUKS2 header
+- optionally, a signed Arch live system for recovery, which boots under Secure Boot
+
+Kernel updates, bootable snapshots and Secure Boot work as usual, as long as the stick is plugged in. pacman refuses to touch boot files while it isn't. `make clone_usb_boot` makes a spare stick, since losing the only one loses the data.
+
+To use it, answer "Yes" on the "USB boot drive" screen, or set `ENABLE_USB_BOOT=true` and `USB_BOOT_DEVICE`. It needs the `secure` wipe method. See [USB Boot Drive](docs/usb-boot.md) for how it works and what it doesn't hide.
+
 ## Quick Start
 
 ```bash
 # From Arch ISO live environment
 pacman-key --init
-# glibc is upgraded with python so an older ISO doesn't end up with a mismatched python
+# glibc might need an upgrade for older ISOs
 pacman -Sy --noconfirm --needed glibc git python make
 git clone https://github.com/kodoshi/arch_installer.git
 cd arch_installer
@@ -43,7 +58,7 @@ read -rsp 'Secrets key: ' ARCH_INSTALLER_SECRETS_KEY && export ARCH_INSTALLER_SE
 NON_INTERACTIVE=true make install
 ```
 
-The installer will prompt for disk selection, passwords, and optional features. Every screen starts on the value inherited from `config/config.yaml` and the environment, marked `(inherited)`: press Enter to keep it, or choose another to override it. All settings can be pre-configured for non-interactive installations.
+The installer will prompt for disk selection, passwords, and optional features. Each screen shows the value it inherited from the environment or `config/config.yaml`, and where that value came from. Enter keeps it, any other choice overrides it. All settings can be pre-configured for non-interactive installations.
 
 At the end of the installation, you can find a final copy of your config file at `/home/<USER>/final_config.yaml` on the installed system.
 
@@ -65,11 +80,11 @@ make decrypt-secrets
 make encrypt-secrets CONFIG_PATH=/path/to/config.yaml
 ```
 
-Secrets are never passed as `make` arguments: those are readable by every user through `ps` and stay in your shell history, so the Makefile refuses them. See [Keeping secrets out of ps and shell history](docs/configuration.md#keeping-secrets-out-of-ps-and-shell-history).
+The Makefile refuses secrets given as `make` arguments, because every user can read those through `ps` and they stay in your shell history. See [Keeping secrets out of ps and shell history](docs/configuration.md#keeping-secrets-out-of-ps-and-shell-history).
 
 ## Design Principles
 
-**Config-driven and Declarative**: One YAML file declares everything - hostname, disk layout, packages, kernel parameters. Edit the config, run the installer, get consistent results.
+**Config-driven and Declarative**: One YAML file declares everything: hostname, disk layout, packages, kernel parameters. The same file gives you the same system on every run.
 
 **Secure by Default**: Most vanilla linux installs are actually insecure. This installer enables full disk encryption, Secure Boot, UKI usage, kernel hardening, basic firewalling, and strong suggestions + guides on secrets management out of the box.
 
@@ -109,9 +124,12 @@ After installation, you have (by default, unless configured otherwise):
 | [Threat Model](docs/threat-model.md)                   | Security analysis                     |
 | [Dotfiles Sync](docs/dotfiles-sync.md)                 | Config file backups                   |
 | [Development](docs/development.md)                     | Project structure, testing, code flow |
-| [Notifications](docs/notifications.md)                 | Build-in desktop notifications        |
+| [Notifications](docs/notifications.md)                 | Built-in desktop notifications        |
 | [Testing](docs/testing.md)                             | Running tests                         |
 | [Troubleshooting](docs/troubleshooting.md)             | Common issues                         |
+| [Verification](docs/verification.md)                   | What `verify-install` checks          |
+| [USB Boot Drive](docs/usb-boot.md)                     | Boot files and LUKS header on a stick |
+| [USB Backup](docs/usb-backup.md)                       | Backups to a partition you choose     |
 
 ## Common Workflows
 
@@ -125,6 +143,17 @@ Boot menu → Select snapshot → System boots in previous state → `snapper ro
 dotfiles-sync init git@github.com:user/dotfiles.git
 dotfiles-sync push   # from configured machine
 dotfiles-sync pull   # on new machine
+```
+
+### Install with a USB boot drive
+
+```bash
+# from the Arch ISO, with the stick plugged in (here /dev/sdb); /dev/sr0 is the live medium
+ENABLE_USB_BOOT=true USB_BOOT_DEVICE=/dev/sdb WIPE_METHOD=secure \
+  ENABLE_RECOVERY_SYSTEM=true ISO_PATH=/dev/sr0 make install
+
+# afterwards, a spare stick
+make clone_usb_boot USB_DEVICE=/dev/sdb SPARE_DEVICE=/dev/sdc
 ```
 
 ### Verify installation
@@ -158,7 +187,7 @@ make install
 - UKI-based Secure Boot setup
 - Kernel hardening parameters
 
-**Note:** Migration creates a completely fresh partition layout with new LUKS encryption. Your old data is copied to staging, the disk is wiped and reformatted, then your data is restored. This ensures a clean, optimized setup.
+Migration doesn't convert the disk in place. It copies your data to a staging area, wipes and repartitions the disk, creates a new LUKS volume with your new password, and copies the data back.
 
 ## Security Hardening
 
@@ -201,7 +230,7 @@ make install
 For detailed threat analysis, see [docs/threat-model.md](docs/threat-model.md).
 
 ### Known Issues being worked on
-- The `secure` disk wipe method still has edge cases of failures, especially on VMs. Use `quick` for testing or `discard` for SSDs.
+- The `secure` disk wipe method still has edge cases of failures, especially on VMs. Use `quick` for testing or `discard` for SSDs, except with a USB boot drive, which requires `secure` (or `skip`).
 - `dotfiles-sync` needs more testing with private repos and SSH keys.
 
 ## References

@@ -1,6 +1,6 @@
 # Configuration Reference
 
-All settings are in `config/config.yaml`. No setting has a default in code: every value the installer uses comes from an environment variable, `config/config.yaml` or the TUI, and a setting none of them provides is reported instead of being made up.
+All settings are in `config/config.yaml`. Settings have no defaults in the code. Each value comes from an environment variable, `config/config.yaml` or the TUI.
 
 ## Where Values Come From
 
@@ -11,17 +11,18 @@ All settings are in `config/config.yaml`. No setting has a default in code: ever
 
 The order is written in one place, `INHERITANCE_ORDER` in `src/arch_installer/config/value_precedence.py`.
 
-- **Non-interactive:** every setting needs a value from the environment or `config.yaml`. If any is missing, the installer stops before touching a disk and lists each missing setting with the sources that can provide it, for example `storage.target_disk (config.yaml or TARGET_DISK)`.
-- **Interactive:** the TUI asks for the settings it has screens for; everything else must come from the environment or `config.yaml`, as above.
+In non-interactive mode, every setting needs a value from the environment or `config.yaml`. If any are missing, the installer stops before touching a disk and lists them with the sources that could provide them, for example `storage.target_disk (config.yaml or TARGET_DISK)`.
+
+In interactive mode, the TUI asks for the settings it has screens for. Everything else has to come from the environment or `config.yaml`, as above.
 
 ## A Complete Configuration
 
-`config.yaml` must state every setting, including list-item details such as each subvolume's `nocow` and each snapper volume's limits. Unknown keys are refused with their full path, so a typo fails loudly instead of being ignored.
+`config.yaml` has to list every setting, down to each subvolume's `nocow` and each snapper volume's limits. An unknown key is refused with its full path, so a misspelled key stops the installer.
 
-- `config/config.yaml` is complete except for `storage.target_disk`, which is machine-specific: give it with `TARGET_DISK` or pick it in the TUI.
-- `tests/data/minimal_config.yaml` is the smallest complete configuration (no desktop, snapper, firewall or Docker); the QEMU tests install it.
+- `config/config.yaml` is complete except for `storage.target_disk`, which differs per machine. Set it with `TARGET_DISK` or pick it in the TUI.
+- `tests/data/minimal_config.yaml` is the smallest complete configuration (no desktop, snapper, firewall or Docker), used in the QEMU tests.
 
-Passwords are never written in plain text: they come from the environment, the TUI, or the encrypted `secrets` section below.
+Passwords are never stored in plain text. They come from the environment, the TUI, or the encrypted `secrets` section below.
 
 ### Encrypted Passwords
 
@@ -32,13 +33,11 @@ make encrypt-secrets   # asks for the key (twice) and both passwords, without ec
 make decrypt-secrets   # asks for the key and prints the passwords
 ```
 
-Secrets encrypted before October 2026 used a fast unsalted SHA-256 key and are refused with a request to run `make encrypt-secrets` again.
-
-`encrypt-secrets` edits only the two `secrets` lines and keeps the rest of the file, comments included. Pressing Enter at a password prompt keeps the stored one, which is only allowed when it was encrypted with the same key. Add `NO_WRITE=true` to print the encrypted values without touching the file, and `CONFIG_PATH=...` to target another file.
+`encrypt-secrets` edits only the two `secrets` lines and keeps the rest of the file untouched. Pressing Enter at a password prompt keeps the stored one, which is only allowed when it was encrypted with the same key. Add `NO_WRITE=true` to print the encrypted values without touching the file, and `CONFIG_PATH=...` to target another file.
 
 ### Keeping Secrets Out of ps and Shell History
 
-A secret typed into a command line leaks twice: `/proc/<pid>/cmdline` is readable by every user (that is what `ps` shows), and the line is saved in your shell history. A process environment (`/proc/<pid>/environ`) is readable only by its owner and root, so environment variables are safe as long as their value is not typed on the command line.
+A secret typed on a command line ends up in `/proc/<pid>/cmdline` (readable by all users) and your shell history. A process's environment (`/proc/<pid>/environ`) can only be read by its owner and root, so passing a secret in an environment variable is fine as long as you don't type the value on the command line.
 
 - The Makefile refuses `ARCH_INSTALLER_SECRETS_KEY`, `LUKS_PASSWORD`, `USER_PASSWORD` and `SOURCE_LUKS_PASSWORD` given as make arguments (`make install LUKS_PASSWORD=...`).
 - `make encrypt-secrets`, `make decrypt-secrets` and an interactive `make install` ask for what they need, without echo.
@@ -54,37 +53,35 @@ The installer itself hands every password to `cryptsetup` and `chpasswd` on stdi
 
 ## Interactive Prompts
 
-Unless `NON_INTERACTIVE=true` is set, the installer opens a curses TUI after reading the environment and `config.yaml`. The questions come from the install steps, in the order the steps run, and each screen title names its step (`Storage: Disk`). Every screen starts on the inherited value and says where it came from, for example `(inherited from environment)`: Enter keeps it, any other choice replaces it. A setting without an inherited value starts with nothing selected. The summary screen lists every answer under its step, with its source (`environment`, `config.yaml` or `TUI`).
+Unless `NON_INTERACTIVE=true` is set, the installer opens a TUI after reading the environment and `config.yaml`. The questions come from the install steps, in the order the steps run, and each screen title names its step (e.g `Storage: Disk`). Each screen preselects the inherited value and shows where it came from, for example `(inherited from environment)`. Enter keeps it, any other choice replaces it. A setting without an inherited value starts with nothing selected. The summary screen lists every answer under its step, with its source (`environment`, `config.yaml` or `TUI`).
 
 ### Screen Sequence
 
 | Step | Screens |
 |---|---|
 | Migration staging | Installation type (fresh or migration); old disk password, only when migrating |
-| USB boot drive | On or off; then, only when on: the drive (the detected disks, or typed), the recovery system on or off, and its Arch ISO when on |
+| USB boot drive | On or off, then only when on: the drive (the detected disks, or typed), the recovery system on or off, and its Arch ISO when on |
 | Storage | Disk (the detected disks, or typed when none is found); wipe method; swap file on or off; swap size and hibernation, only with a swap file; LUKS password |
 | Packages | CPU vendor; GPU vendor; NVIDIA driver, only for an NVIDIA card; desktops |
 | System | Hostname; username; timezone; keymap; user password |
 | Docker, Bootable snapshots, Snapshot notifications, Firewall | On or off, one screen each |
 | | Configuration summary: `y` installs, `n` cancels |
 
-- **Passwords:** an inherited password (encrypted secrets or environment) is never shown. Its screen offers to keep it or enter a new one, and a new one is typed twice.
-- **Text fields:** typing replaces the inherited value, and Esc restores it.
-- **Swap size:** the inherited size is offered even when it isn't one of the presets (4 to 64 GB).
+An inherited password (from the encrypted secrets or the environment) is never displayed. Its screen lets you keep it or enter a new one, which you type twice. In text fields, typing replaces the inherited value and Esc brings it back. The swap size screen also offers the inherited size when it isn't one of the presets (4 to 64 GB).
 
 Ctrl+C quits from any screen (`q` also quits from menus); a cancelled setup exits with status 130 and installs nothing.
 
 ## Desktop Environments
 
-The installer supports **multi-desktop** installation. You can install one or more desktop environments and switch between them at login via SDDM.
+You can install several desktops and choose one at the SDDM login screen.
 
-| Desktop  | Description                       |
-| -------- | --------------------------------- |
-| GNOME    | Wayland, modern, intuitive        |
-| KDE      | Wayland, highly customizable      |
-| Hyprland | Wayland tiling WM for power users |
+| Desktop  | Description                 |
+| -------- | --------------------------- |
+| GNOME    | Wayland desktop             |
+| KDE      | Plasma, Wayland desktop     |
+| Hyprland | Wayland tiling compositor   |
 
-The desktops to install are listed in `packages.selected_desktops` (each needs packages under `packages.desktops`; an empty list installs none). `SELECTED_DESKTOPS=gnome,kde` overrides that list, and the **Desktop Environments** screen of the TUI shows it ticked and lets you change it (Space toggles, Enter confirms).
+The desktops to install are listed in `packages.selected_desktops` (each needs packages under `packages.desktops`; an empty list installs none). `SELECTED_DESKTOPS=gnome,kde` overrides that list, and the TUI's "Packages: Desktops" screen shows the list ticked and lets you change it (Space toggles, Enter confirms).
 
 The packages in `packages.display_manager` (SDDM by default) are installed and enabled alongside them.
 
@@ -207,14 +204,10 @@ gpu:
 
 ## Package Configuration
 
-All packages are declared in `config.yaml`. The installer supports two profiles (you can also define your own):
-
-- **base**: Full installation with all utilities, audio, apps
+All packages are declared in `config.yaml`:
 
 ```yaml
 packages:
-  profile: base
-
   base:
     # Core system, kernels, firmware, utilities, apps
     - base
@@ -266,30 +259,28 @@ firewall:
   default_incoming: deny
   default_outgoing: allow
   logging: true
-  block_icmp: false
+  block_icmp: true
 
   ssh:
     enabled: false
     port: 22
-    allowed_from: null # or specific IP like "192.168.1.0/24"
+    allowed_from: '' # or a network like '192.168.1.0/24'
 
-  allow_rules:
-    - port: 8080
-      protocol: tcp
+  allow_rules: []
 ```
 
 ### Firewall Options
 
-| Field              | Description                         | Default |
+| Field              | Description                         | Shipped value |
 | ------------------ | ----------------------------------- | ------- |
 | `enabled`          | Enable UFW firewall                 | `true`  |
 | `default_incoming` | Default policy for incoming traffic | `deny`  |
 | `default_outgoing` | Default policy for outgoing traffic | `allow` |
 | `logging`          | Enable firewall logging             | `true`  |
-| `block_icmp`       | Block ICMP (ping) requests          | `false` |
+| `block_icmp`       | Block ICMP (ping) requests          | `true`  |
 | `ssh.enabled`      | Allow incoming SSH connections      | `false` |
 | `ssh.port`         | SSH port number                     | `22`    |
-| `ssh.allowed_from` | Restrict SSH to specific IP/subnet  | `null`  |
+| `ssh.allowed_from` | Restrict SSH to specific IP/subnet  | `''`    |
 | `allow_rules`      | Additional ports to allow           | `[]`    |
 
 ### SSH Access
@@ -364,11 +355,11 @@ snapper:
 
 ## Dotfiles Sync
 
-Dotfiles sync is not part of config.yaml: the installed `dotfiles-sync` tool keeps its own settings in `~/.config/dotfiles-sync/config.yaml`, and `dotfiles-sync init <repo-url>` points it at any git server. See [Dotfiles Sync](dotfiles-sync.md).
+Dotfiles sync isn't configured in config.yaml. The installed `dotfiles-sync` tool keeps its own settings in `~/.config/dotfiles-sync/config.yaml`, and `dotfiles-sync init <repo-url>` points it at any git server. See [Dotfiles Sync](dotfiles-sync.md).
 
 ## Environment Variables
 
-The settings below can also come from environment variables. A variable that is set beats `config.yaml`; in interactive mode the TUI then shows it as the inherited value, marked `(inherited from environment)`. Each variable is declared next to the setting it provides, in the install step registry (`install_steps/registry.py`), and its text is read as the type the model declares for that setting. The last column names what is used when the variable is not set.
+The settings below can also come from environment variables. A variable that is set beats `config.yaml`; in interactive mode the TUI then shows it as the inherited value, marked `(inherited from environment)`. Each variable is declared next to the setting it provides, in the install step registry (`install_steps/registry.py`), and its text is read as the type the model declares for that setting. The last column labels what is used when the variable is not set.
 
 ### Installer Switches
 
@@ -447,9 +438,7 @@ See [USB Backup](usb-backup.md).
 
 ## Dual Boot with Windows
 
-This installer is **dual-boot friendly** with Windows. However, for best results:
-
-> **Strongly recommended**: Install Windows and Arch Linux on separate physical drives.
+The installer takes over the whole target disk, so Windows has to live on a different physical drive.
 
 ### Why separate drives?
 

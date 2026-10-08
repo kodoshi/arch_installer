@@ -6,7 +6,6 @@
 
 - Python 3.13+
 - [Poetry](https://python-poetry.org/) for dependency management
-- Docker (for integration tests)
 - QEMU + OVMF (for end-to-end tests)
 
 ### Installing Poetry
@@ -52,28 +51,25 @@ poetry run pytest -v
 poetry run pytest -x
 ```
 
-## Philosophy
+## Approach
 
-The testing approach follows these principles:
-
-1. **Full Environment Testing**: Tests run in actual QEMU virtual machines with real UEFI firmware, not mocked environments. This ensures the installer works in production conditions.
-
-2. **Explicit Dependencies**: All test fixtures use explicit parameter dependencies - no `autouse` or hidden session setup. If a test needs something, it's in the function signature.
-
-3. **Layered Testing**: From fast unit tests to slow full-installation tests, each layer validates different aspects without redundancy.
-
-4. **Deterministic Reproducibility**: Every test run should produce identical results given the same inputs. External dependencies (network, package versions) are controlled through a local package cache proxy (WIP).
+- The QEMU tests run the real installer in virtual machines with UEFI firmware and Secure Boot, instead of mocking the system.
+- QEMU fixtures are explicit. A test asks for what it needs in its signature, with no `autouse` or hidden session setup. The unit tests have two autouse fixtures, one that turns off `time.sleep` and one that makes Argon2id cheap.
+- Unit tests cover the logic in isolation, the QEMU tests cover what only a real machine shows.
+- The package cache proxy (WIP) is meant to pin package versions so runs can be repeated.
 
 ## Test Categories
 
 ### Unit Tests (`tests/unit/`)
 
-Fast tests that validate individual components in isolation:
+Fast tests without a VM:
 
-- Configuration parsing and validation
-- Command building logic
-- Path manipulation
-- Data structure transformations
+- the config model, its builder and the value precedence
+- the install step registry and the setup session (through a scripted front-end)
+- the commands each executor runs, recorded by `FakeCommandRunner`
+- the templates of the files the installer writes
+- the curses widgets, on a fake window
+- secrets encryption
 
 Run with: `poetry run pytest tests/unit/`
 
@@ -85,12 +81,12 @@ Full end-to-end tests in QEMU VMs with real UEFI firmware:
 - Secure Boot enrollment and verification
 - Negative Secure Boot test (unsigned binaries blocked)
 - BTRFS snapshot functionality
-- USB boot drive (plausible deniability encryption): an internal disk holding only ciphertext (no partition table, random from first to last byte), booting every kernel, a snapshot, the recovery system and the spare drive from the drive's menu, the pacman guard with the drive unplugged
+- USB boot drive: checks that the internal disk holds only random-looking ciphertext with no partition table, boots the kernels, a snapshot, the recovery system and the spare stick, and checks the pacman guard with the stick unplugged
 - System bootability validation
 - TUI installer driven through tmux keystrokes (only the secrets key comes from the environment; passwords are inherited from encrypted secrets and kept on their screens)
 - TUI screen-by-screen selections (`test_tui.py`): typed overrides and cursor moves relative to the inherited values
 
-All QEMU installation tests have a 30-minute timeout to prevent hanging.
+QEMU installation tests time out after 30 minutes, the USB boot drive test after 70.
 
 Run with: `poetry run pytest tests/qemu/ --arch-iso /path/to/archlinux.iso`
 

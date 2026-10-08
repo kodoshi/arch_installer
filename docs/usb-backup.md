@@ -2,7 +2,7 @@
 
 `make backup_to_usb` copies dotfiles, password databases, browser profiles and system configuration to a partition you choose, together with the list of explicitly installed packages and this machine's `config.yaml` (without passwords).
 
-The partition is yours: the backup mounts it and never formats it. It is not the [USB boot drive](usb-boot.md), whose partitions hold only what booting needs. The files are copied in plain text, so put the partition on an encrypted volume when the backup includes browser profiles or anything else sensitive.
+You provide the partition. The backup mounts it but never formats it, and it can't be the [USB boot drive](usb-boot.md), which only holds what booting needs. Files are copied in plain text, so use an encrypted volume if the backup includes browser profiles or anything else sensitive.
 
 ## Usage
 
@@ -38,7 +38,7 @@ Built-in categories:
 - **browser**: Firefox and Chromium profiles
 - **system**: pacman.conf, makepkg.conf, mkinitcpio.conf
 
-## What the Partition Holds
+## Contents of the Backup
 
 ```
 manifest.yaml                 # time, host name, categories, package count, items
@@ -56,4 +56,4 @@ packages:
     - neovim
 ```
 
-Copied into a new `config.yaml`, the cataloged packages are installed together with `packages.base`.
+If you copy this into a new `config.yaml`, the installer installs the cataloged packages along with `packages.base`.

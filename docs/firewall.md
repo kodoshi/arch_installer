@@ -1,6 +1,6 @@
 # Firewall
 
-The installer configures UFW (Uncomplicated Firewall) with the security-hardened settings of the shipped config.yaml.
+The installer sets up UFW (Uncomplicated Firewall) from the `firewall` section of `config.yaml`.
 
 ## Configuration
 
@@ -12,31 +12,29 @@ firewall:
   default_incoming: deny
   default_outgoing: allow
   logging: true
-  block_icmp: false
+  block_icmp: true
 
   ssh:
     enabled: false
     port: 22
-    allowed_from: null
+    allowed_from: ''
 
-  allow_rules:
-    - port: 8080
-      protocol: tcp
+  allow_rules: []
 ```
 
-## Default Settings
+## Shipped Settings
 
-| Setting          | Value        | Rationale                                   |
+| Setting          | Value        | Why                                         |
 | ---------------- | ------------ | ------------------------------------------- |
-| Default incoming | **deny**     | Block all unsolicited connections           |
-| Default outgoing | **allow**    | Permit normal internet access               |
-| Logging          | **enabled**  | Audit security events in `/var/log/ufw.log` |
-| ICMP ping        | **allowed**  | Can be blocked via `block_icmp: true`       |
-| SSH              | **disabled** | Must be explicitly enabled                  |
+| Default incoming | **deny**     | No unsolicited connections                  |
+| Default outgoing | **allow**    | Normal internet access                      |
+| Logging          | **enabled**  | Blocked traffic goes to `/var/log/ufw.log`  |
+| ICMP             | **blocked**  | `block_icmp: false` allows ping again       |
+| SSH              | **closed**   | Has to be opened explicitly                 |
 
 ## SSH Access
 
-SSH is disabled by default for security. To enable:
+SSH is closed in the shipped config. To open it:
 
 ```yaml
 firewall:
@@ -57,7 +55,7 @@ firewall:
 
 ## ICMP Blocking
 
-To block ICMP (ping) requests and reduce network fingerprinting:
+`block_icmp: true` (the shipped value) drops ICMP, ping included, which makes the machine harder to discover and fingerprint:
 
 ```yaml
 firewall:
@@ -121,11 +119,14 @@ ENABLE_FIREWALL=false make install
 
 Or after installation:
 
-````
+```bash
+sudo ufw disable
+sudo systemctl disable --now ufw
+```
 
 ## Re-enabling
 
 ```bash
 sudo ufw enable
 sudo systemctl enable --now ufw
-````
+```

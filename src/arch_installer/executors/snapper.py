@@ -268,7 +268,7 @@ class SnapperStepExecutor(StepExecutor):
         self._runner.run(f"mkdir -p {snapshots_directory}")
         mount_options = self._config.storage.btrfs.mount_options
         self._runner.run(
-            f"mount -o subvol={volume.snapshots_subvolume},{mount_options} "
+            f"mount -t btrfs -o subvol={volume.snapshots_subvolume},{mount_options} "
             f"{self._config.storage.cryptroot_device} {snapshots_directory}"
         )
         self._runner.run(f"chmod 750 {snapshots_directory}")

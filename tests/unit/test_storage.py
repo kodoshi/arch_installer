@@ -121,7 +121,7 @@ class TestStorageWithUsbBootDrive:
     def test_drive_efi_partition_becomes_the_system_esp(self, fake_runner):
         StorageStepExecutor(usb_boot_storage(), storage_runner(fake_runner)).execute()
 
-        fake_runner.assert_command_called("mount -o umask=0077 /dev/sdb1 /mnt/efi")
+        fake_runner.assert_command_called("mount -t vfat -o umask=0077 /dev/sdb1 /mnt/efi")
 
     def test_migration_fills_the_disk_with_random_data(self, fake_runner):
         config = usb_boot_storage(wipe_method=WipeMethod.SKIP, migration=True)

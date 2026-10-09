@@ -88,7 +88,7 @@ class MigrationStagingStepExecutor(StepExecutor):
         # subvolid=5 is the btrfs top level, where every subvolume is visible
         self._runner.run(f"mkdir -p {OLD_MOUNT_DIRECTORY}")
         mounted = self._runner.run(
-            f"mount -o subvolid=5 /dev/mapper/{OLD_MAPPER_NAME} {OLD_MOUNT_DIRECTORY}",
+            f"mount -t btrfs -o subvolid=5 /dev/mapper/{OLD_MAPPER_NAME} {OLD_MOUNT_DIRECTORY}",
             raise_on_nonzero_exit=False,
         )
         if not mounted.success:

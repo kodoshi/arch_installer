@@ -322,7 +322,7 @@ class UsbBootDriveStepExecutor(StepExecutor):
         )
         self._runner.run(f"mkfs.ext4 -F -m 0 -L RECOVERY {recovery_partition}")
         self._runner.run(f"mkdir -p {RECOVERY_MOUNT}")
-        self._runner.run(f"mount {recovery_partition} {RECOVERY_MOUNT}")
+        self._runner.run(f"mount -t ext4 {recovery_partition} {RECOVERY_MOUNT}")
         try:
             recovery_iso.extract_live_system(RECOVERY_MOUNT)
         finally:

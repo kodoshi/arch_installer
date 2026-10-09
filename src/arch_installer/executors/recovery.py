@@ -60,7 +60,7 @@ class RecoverySystemStepExecutor(StepExecutor):
         ).stdout.strip()
         build_directory = f"{TARGET_ROOT}{RECOVERY_BUILD_DIRECTORY}"
         self._runner.run(f"mkdir -p {RECOVERY_MOUNT} {build_directory}")
-        self._runner.run(f"mount {recovery_partition} {RECOVERY_MOUNT}")
+        self._runner.run(f"mount -t ext4 {recovery_partition} {RECOVERY_MOUNT}")
         try:
             live_system_version = self._runner.run(
                 f"cat {RECOVERY_MOUNT}/{ARCHISO_VERSION_FILE}"

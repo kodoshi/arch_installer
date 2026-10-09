@@ -265,7 +265,7 @@ class StorageStepExecutor(StepExecutor):
             self._runner.run(f'mkfs.btrfs -f -L "{label}" {cryptroot}')
 
         if not is_mountpoint(self._runner, TARGET_ROOT):
-            self._runner.run(f"mount {cryptroot} {TARGET_ROOT}")
+            self._runner.run(f"mount -t btrfs {cryptroot} {TARGET_ROOT}")
         self._create_subvolumes()
         self._runner.run(f"umount {TARGET_ROOT}")
 
@@ -291,7 +291,7 @@ class StorageStepExecutor(StepExecutor):
         mount_options = storage.btrfs.mount_options
 
         self._runner.run(
-            f"mount -o subvol=@,{mount_options} {storage.cryptroot_device} {TARGET_ROOT}"
+            f"mount -t btrfs -o subvol=@,{mount_options} {storage.cryptroot_device} {TARGET_ROOT}"
         )
         for subvolume in storage.btrfs.subvolumes:
             if subvolume.name == "@":
@@ -299,7 +299,8 @@ class StorageStepExecutor(StepExecutor):
             mountpoint = f"{TARGET_ROOT}{subvolume.mountpoint}"
             self._runner.run(f"mkdir -p {mountpoint}", raise_on_nonzero_exit=False)
             self._runner.run(
-                f"mount -o subvol={subvolume.name},{mount_options} {storage.cryptroot_device} {mountpoint}"
+                f"mount -t btrfs -o subvol={subvolume.name},{mount_options} "
+                f"{storage.cryptroot_device} {mountpoint}"
             )
             if subvolume.nocow:
                 self._runner.run(f"chattr +C {mountpoint}", raise_on_nonzero_exit=False)
@@ -317,8 +318,10 @@ class StorageStepExecutor(StepExecutor):
 
         self._runner.run(f"mkdir -p {TARGET_EFI}")
         # FAT has no per-file permissions, so the mount mask decides who can read the
-        # ESP (including the boot loader random seed). genfstab carries it into fstab
-        self._runner.run(f"mount -o umask=0077 {efi_partition} {TARGET_EFI}")
+        # ESP (including the boot loader random seed). genfstab carries it into fstab.
+        # the type is explicit: right after mkfs, udev may not have probed the partition
+        # yet, and mount then guesses from the loaded filesystems, which lack vfat
+        self._runner.run(f"mount -t vfat -o umask=0077 {efi_partition} {TARGET_EFI}")
 
     def _create_swapfile(self) -> None:
         swap = self._config.storage.swap

@@ -74,7 +74,7 @@ After=snapper-cleanup.service snapper-timeline.service
 
 [Service]
 Type=oneshot
-ExecStart={SNAPSHOT_MANAGER} refresh
+ExecStart={SNAPSHOT_MANAGER} refresh-settled
 """
 
 

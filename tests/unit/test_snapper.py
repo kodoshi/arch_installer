@@ -1,7 +1,11 @@
 from dataclasses import replace
 
 from arch_installer.config.models import SnapperConfig
-from arch_installer.executors.snapper import BootableSnapshotsStepExecutor, SnapperStepExecutor
+from arch_installer.executors.snapper import (
+    SNAPSHOT_MANAGER,
+    BootableSnapshotsStepExecutor,
+    SnapperStepExecutor,
+)
 from tests.unit.conftest import build_config
 
 
@@ -54,3 +58,13 @@ class TestSnapshotBootExecutor:
         fake_runner.written_content("/mnt/etc/default/manage-snapshot-ukis")
         fake_runner.written_content("/mnt/etc/pacman.d/hooks/95-snapshot-uki-refresh.hook")
         fake_runner.assert_command_called("systemctl enable snapper-boot-entries.path")
+
+    def test_new_snapshots_are_refreshed_until_they_settle(self, fake_runner):
+        config = build_config(boot=replace(build_config().boot, enable_snapshot_boot=True))
+
+        BootableSnapshotsStepExecutor(config, fake_runner).execute()
+
+        service = fake_runner.written_content(
+            "/mnt/etc/systemd/system/snapper-boot-entries.service"
+        )
+        assert f"ExecStart={SNAPSHOT_MANAGER} refresh-settled" in service

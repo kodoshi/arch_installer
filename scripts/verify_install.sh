@@ -13,6 +13,9 @@ BLUE='\033[0;34m'
 NC='\033[0m'
 
 EXPECTED_STATE_FILE="/etc/dali/expected-state.env"
+EFI_VARIABLES_DIRECTORY="/sys/firmware/efi/efivars"
+# the UEFI specification's global variables, SecureBoot among them
+EFI_GLOBAL_VARIABLE_GUID="8be4df61-93ca-11d2-aa0d-00e098032b8c"
 
 PASS_COUNT=0
 FAIL_COUNT=0
@@ -100,29 +103,22 @@ load_expectations() {
 verify_secure_boot() {
     log_section "SECURE BOOT"
 
-    if [[ -d /sys/firmware/efi/efivars ]]; then
+    if [[ -d "$EFI_VARIABLES_DIRECTORY" ]]; then
         log_pass "System booted in UEFI mode"
 
-        local secure_boot_state
-        secure_boot_state=$(mokutil --sb-state 2>/dev/null || echo "unknown")
-
-        if echo "$secure_boot_state" | grep -qi "SecureBoot enabled"; then
-            log_pass "Secure Boot is ENABLED"
-        elif echo "$secure_boot_state" | grep -qi "SecureBoot disabled"; then
-            log_fail "Secure Boot is DISABLED"
-            echo "         Enable Secure Boot in BIOS/UEFI settings"
-        else
-            if [[ -f /sys/firmware/efi/efivars/SecureBoot-* ]]; then
-                local secure_boot_byte
-                secure_boot_byte=$(od -An -t u1 /sys/firmware/efi/efivars/SecureBoot-* 2>/dev/null | awk '{print $NF}')
-                if [[ "$secure_boot_byte" == "1" ]]; then
-                    log_pass "Secure Boot is ENABLED (via efivar)"
-                else
-                    log_fail "Secure Boot is DISABLED (via efivar)"
-                fi
+        local secure_boot_variable="$EFI_VARIABLES_DIRECTORY/SecureBoot-$EFI_GLOBAL_VARIABLE_GUID"
+        if [[ -r "$secure_boot_variable" ]]; then
+            # four bytes of attributes, then the value: 1 when Secure Boot is enforced
+            local secure_boot_value
+            secure_boot_value=$(od -An -t u1 -j 4 -N 1 "$secure_boot_variable" | tr -d ' ')
+            if [[ "$secure_boot_value" == "1" ]]; then
+                log_pass "Secure Boot is ENABLED"
             else
-                log_warn "Could not determine Secure Boot state"
+                log_fail "Secure Boot is DISABLED"
+                echo "         Enable Secure Boot in BIOS/UEFI settings"
             fi
+        else
+            log_warn "Could not determine Secure Boot state: $secure_boot_variable is missing"
         fi
     else
         log_fail "System NOT booted in UEFI mode"
@@ -852,6 +848,13 @@ verify_usb_boot_drive() {
 }
 
 
+# ufw prints every direction on one line: "Default: deny (incoming), allow (outgoing), deny (routed)"
+ufw_default_policy() {
+    local direction="$1"
+    local ufw_verbose="$2"
+    grep -m1 '^Default:' <<<"$ufw_verbose" | grep -oP "\w+(?= \($direction\))"
+}
+
 verify_firewall() {
     log_section "FIREWALL (UFW)"
 
@@ -898,16 +901,20 @@ verify_firewall() {
     local ufw_verbose
     ufw_verbose=$(ufw status verbose 2>/dev/null || echo "")
 
-    if echo "$ufw_verbose" | grep -q "Default: deny (incoming)"; then
+    local incoming_policy outgoing_policy
+    incoming_policy=$(ufw_default_policy incoming "$ufw_verbose")
+    outgoing_policy=$(ufw_default_policy outgoing "$ufw_verbose")
+
+    if [[ "$incoming_policy" == "deny" ]]; then
         log_pass "Default incoming: DENY"
     else
-        log_warn "Default incoming policy may not be deny"
+        log_warn "Default incoming policy is ${incoming_policy:-unknown}, expected deny"
     fi
 
-    if echo "$ufw_verbose" | grep -q "Default: allow (outgoing)"; then
+    if [[ "$outgoing_policy" == "allow" ]]; then
         log_pass "Default outgoing: ALLOW"
     else
-        log_warn "Default outgoing policy may not be allow"
+        log_warn "Default outgoing policy is ${outgoing_policy:-unknown}, expected allow"
     fi
 
     # check logging

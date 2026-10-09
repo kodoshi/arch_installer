@@ -7,6 +7,7 @@
 #
 # usage:
 #   ./manage_snapshot_entries.sh refresh [N]  # Generate UKIs for last N snapshots (default: 3)
+#   ./manage_snapshot_entries.sh refresh-settled [N]  # Same, repeated until the snapshots stop changing
 #   ./manage_snapshot_entries.sh list         # List current snapshot UKIs
 #   ./manage_snapshot_entries.sh cleanup      # Remove all snapshot UKIs
 #
@@ -18,13 +19,6 @@
 # =============================================================================
 
 set -Eeuo pipefail
-
-# require root/sudo for all operations
-if [[ $EUID -ne 0 ]]; then
-    echo -e "\033[0;31mError:\033[0m This script must be run with sudo or as root."
-    echo "Usage: sudo $0 [command]"
-    exit 1
-fi
 
 SNAPSHOTS_DIR="/.snapshots"
 EFI_DIR="/efi"
@@ -40,6 +34,10 @@ if [ -f "$SETTINGS_FILE" ]; then
     . "$SETTINGS_FILE"
 fi
 DEFAULT_SNAPSHOT_COUNT="${SNAPSHOT_COUNT:-7}"
+# refresh-settled waits until the snapshots stay unchanged this long, then refreshes, at most
+# this many times in a row
+SNAPSHOTS_SETTLE_SECONDS=2
+MAX_REFRESH_ROUNDS=5
 
 # notification settings
 NOTIFY_ENABLED="${SNAPSHOT_NOTIFY:-true}"
@@ -590,6 +588,45 @@ refresh_entries() {
     fi
 }
 
+# a snapshot is complete once snapper wrote its info.xml; its modification time also
+# catches a changed description, the list catches deletions
+snapshots_fingerprint() {
+    stat -c '%n %Y' "$SNAPSHOTS_DIR"/*/info.xml 2>/dev/null || true
+    stat -c '%n' "$SNAPSHOTS_DIR"/*/snapshot 2>/dev/null || true
+}
+
+wait_for_snapshots_to_settle() {
+    local previous current attempt
+    previous=$(snapshots_fingerprint)
+    for ((attempt = 1; attempt <= 30; attempt++)); do
+        sleep "$SNAPSHOTS_SETTLE_SECONDS"
+        current=$(snapshots_fingerprint)
+        if [ "$current" == "$previous" ]; then
+            return 0
+        fi
+        previous=$current
+    done
+    log_warn "Snapshots are still changing, refreshing anyway"
+}
+
+# snapper-boot-entries.path starts this on changes in /.snapshots, but systemd doesn't watch
+# the directory while the service runs: snap-pac's post snapshot, taken while the refresh for
+# its pre snapshot is running, would otherwise never get a UKI
+refresh_entries_until_settled() {
+    local max_snapshots="${1:-$DEFAULT_SNAPSHOT_COUNT}"
+    local round fingerprint_before_refresh
+    for ((round = 1; round <= MAX_REFRESH_ROUNDS; round++)); do
+        wait_for_snapshots_to_settle
+        fingerprint_before_refresh=$(snapshots_fingerprint)
+        refresh_entries "$max_snapshots"
+        if [ "$(snapshots_fingerprint)" == "$fingerprint_before_refresh" ]; then
+            return 0
+        fi
+        log_info "Snapshots changed during the refresh, refreshing again"
+    done
+    log_warn "Snapshots kept changing over $MAX_REFRESH_ROUNDS refreshes, the newest get a UKI on the next change"
+}
+
 # function to list current snapshot UKIs
 list_entries() {
     log_info "Current snapshot UKIs:"
@@ -644,44 +681,61 @@ show_space() {
     fi
 }
 
-# main
-case "${1:-}" in
-    refresh)
-        refresh_entries "${2:-$DEFAULT_SNAPSHOT_COUNT}"
-        ;;
-    list)
-        list_snapshots
-        echo ""
-        list_entries
-        ;;
-    cleanup)
-        cleanup_entries
-        ;;
-    space)
-        show_space
-        ;;
-    *)
-        echo "BTRFS Snapshot UKI Manager (Secure Boot Compatible)"
-        echo ""
-        echo "Usage: $0 {refresh|list|cleanup|space} [count]"
-        echo ""
-        echo "Commands:"
-        echo "  refresh [N]  - Generate bootable UKIs for last N snapshots (default: 7)"
-        echo "  list         - List available snapshots and current UKIs"
-        echo "  cleanup      - Remove all snapshot UKIs"
-        echo "  space        - Show EFI partition space usage"
-        echo ""
-        echo "Examples:"
-        echo "  $0 refresh      # Create UKIs for last 7 snapshots"
-        echo "  $0 refresh 10   # Create UKIs for last 10 snapshots"
-        echo "  $0 list         # Show snapshots and UKIs"
-        echo "  $0 space        # Check EFI partition space"
-        echo ""
-        echo "Notes:"
-        echo "  - UKIs are ~50-100MB each, so limit snapshot count"
-        echo "  - 2GB EFI partition supports ~15-20 UKIs"
-        echo "  - UKIs are automatically signed if sbctl is configured"
-        echo "  - Desktop notifications sent on success/failure"
+main() {
+    # require root/sudo for all operations
+    if [[ $EUID -ne 0 ]]; then
+        echo -e "\033[0;31mError:\033[0m This script must be run with sudo or as root."
+        echo "Usage: sudo $0 [command]"
         exit 1
-        ;;
-esac
+    fi
+
+    case "${1:-}" in
+        refresh)
+            refresh_entries "${2:-$DEFAULT_SNAPSHOT_COUNT}"
+            ;;
+        refresh-settled)
+            refresh_entries_until_settled "${2:-$DEFAULT_SNAPSHOT_COUNT}"
+            ;;
+        list)
+            list_snapshots
+            echo ""
+            list_entries
+            ;;
+        cleanup)
+            cleanup_entries
+            ;;
+        space)
+            show_space
+            ;;
+        *)
+            echo "BTRFS Snapshot UKI Manager (Secure Boot Compatible)"
+            echo ""
+            echo "Usage: $0 {refresh|refresh-settled|list|cleanup|space} [count]"
+            echo ""
+            echo "Commands:"
+            echo "  refresh [N]  - Generate bootable UKIs for last N snapshots (default: 7)"
+            echo "  refresh-settled [N] - Refresh once the snapshots stop changing, again if they change meanwhile"
+            echo "  list         - List available snapshots and current UKIs"
+            echo "  cleanup      - Remove all snapshot UKIs"
+            echo "  space        - Show EFI partition space usage"
+            echo ""
+            echo "Examples:"
+            echo "  $0 refresh      # Create UKIs for last 7 snapshots"
+            echo "  $0 refresh 10   # Create UKIs for last 10 snapshots"
+            echo "  $0 list         # Show snapshots and UKIs"
+            echo "  $0 space        # Check EFI partition space"
+            echo ""
+            echo "Notes:"
+            echo "  - UKIs are ~50-100MB each, so limit snapshot count"
+            echo "  - 2GB EFI partition supports ~15-20 UKIs"
+            echo "  - UKIs are automatically signed if sbctl is configured"
+            echo "  - Desktop notifications sent on success/failure"
+            exit 1
+            ;;
+    esac
+}
+
+# sourcing the script (as the unit tests do) defines the functions without running them
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+    main "$@"
+fi

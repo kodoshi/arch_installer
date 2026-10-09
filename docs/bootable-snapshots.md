@@ -67,6 +67,8 @@ Pacman hook regenerates snapshot UKIs when:
 
 Log: `/var/log/snapshot-uki-refresh.log`
 
+New and deleted snapshots get their UKIs from `snapper-boot-entries.path`, which starts `snapper-boot-entries.service` when `/.snapshots` changes. systemd stops watching the directory while that service runs, so the service runs `manage-snapshot-ukis refresh-settled`: it waits until the snapshots have stayed unchanged for 2 seconds, refreshes, and refreshes again if snapshots appeared or disappeared in the meantime. This covers snap-pac's pre and post snapshots, which come seconds apart. Log: `journalctl -u snapper-boot-entries.service`.
+
 ## Manual Snapshot Management
 
 ```bash

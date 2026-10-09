@@ -8,13 +8,14 @@ from arch_installer.config.environment import Environment
 from arch_installer.config.models import (
     LUKS_PASSWORD_SECRET,
     USER_PASSWORD_SECRET,
+    Desktop,
     InstallerConfig,
     WipeMethod,
 )
 from arch_installer.config.value_precedence import SettingValue, ValueSource
 from arch_installer.core.secrets import encrypt_secret
 from arch_installer.errors import ConfigurationError
-from tests.unit.conftest import UNIT_CONFIG_PATH, build_config
+from tests.unit.conftest import DEMO_CONFIG_PATH, UNIT_CONFIG_PATH, build_config
 
 
 @pytest.fixture
@@ -169,3 +170,29 @@ class TestUsbBootValidation:
 
         with pytest.raises(ConfigurationError, match="random data"):
             validate_for_install(config)
+
+
+class TestDemoConfig:
+    def test_leaves_the_disk_and_both_passwords_to_the_tui(self):
+        with pytest.raises(ConfigurationError) as raised:
+            validate_for_install(assemble_installer_config(environment_for(DEMO_CONFIG_PATH), None))
+
+        assert "storage.target_disk" in str(raised.value)
+
+    def test_installs_an_encrypted_kde_system_once_the_tui_answered(self):
+        environment = environment_for(
+            DEMO_CONFIG_PATH,
+            TARGET_DISK="/dev/vda",
+            LUKS_PASSWORD="demo-passphrase",
+            USER_PASSWORD="demo-password",
+        )
+
+        config = assemble_installer_config(environment, None)
+
+        validate_for_install(config)
+        assert config.packages.selected_desktops == (Desktop.KDE,)
+        assert config.boot.kernel_packages == ("linux-hardened",)
+        assert config.boot.secure_boot.enroll_keys
+        assert config.firewall.enabled
+        assert not config.storage.swap.enabled
+        assert not config.snapper.enabled

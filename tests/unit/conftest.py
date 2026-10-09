@@ -16,6 +16,7 @@ from arch_installer.core.secrets import Argon2Cost
 from tests.unit import FakeCommandRunner
 
 EXAMPLE_CONFIG_PATH = Path(__file__).parent.parent.parent / "config" / "config.yaml"
+DEMO_CONFIG_PATH = EXAMPLE_CONFIG_PATH.parent / "demo_config.yaml"
 # every setting explicit, as the installer requires: the base the unit tests vary
 UNIT_CONFIG_PATH = Path(__file__).parent.parent / "data" / "unit_config.yaml"
 UNIT_CREDENTIALS = Credentials(

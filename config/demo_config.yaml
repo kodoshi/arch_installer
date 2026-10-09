@@ -1,0 +1,253 @@
+# A small DALI configuration for a demo machine: an encrypted, Secure Boot signed,
+# hardened Arch Linux with KDE Plasma, and nothing else.
+#   CONFIG_PATH=config/demo_config.yaml make install
+# The TUI asks for the target disk and both passwords; every other value comes from here.
+# No swap, no snapshots, no Docker. See config.yaml for every option, explained.
+
+system:
+  hostname: dali-demo
+  timezone: Europe/Paris
+  # intel or amd: the microcode package
+  cpu_vendor: amd
+  locale:
+    language: en_US
+    encoding: UTF-8
+    keymap: us
+    monetary: en_US.UTF-8
+    time_format: en_US.UTF-8
+    numeric: en_US.UTF-8
+    paper: en_US.UTF-8
+  mirrors:
+    mirrors:
+      - https://geo.mirror.pkgbuild.com/$repo/os/$arch
+    use_reflector: false
+    reflector_countries: []
+  user:
+    name: demo
+    groups:
+      - wheel
+
+storage:
+  # asked by the TUI (or TARGET_DISK)
+  # target_disk: /dev/vda
+  efi_size_mb: 1024
+  wipe_method: quick
+  # LUKS2 with Argon2id: about 4 seconds and 1 GiB of memory per passphrase try
+  luks:
+    type: luks2
+    cipher: aes-xts-plain64
+    key_size: 512
+    hash: sha512
+    pbkdf: argon2id
+    pbkdf_memory: 1048576
+    pbkdf_parallel: 4
+    pbkdf_time_ms: 4000
+  btrfs:
+    label: archroot
+    mount_options: compress=zstd,noatime
+    subvolumes:
+      - name: '@'
+        mountpoint: /
+        nocow: false
+      - name: '@home'
+        mountpoint: /home
+        nocow: false
+      - name: '@var-log'
+        mountpoint: /var/log
+        nocow: false
+      - name: '@cache-pacman-pkgs'
+        mountpoint: /var/cache/pacman/pkg
+        nocow: false
+  swap:
+    enabled: false
+    size_mb: 0
+    path: /.swap/swapfile
+    hibernation: false
+
+boot:
+  kernels:
+    - name: hardened
+      package: linux-hardened
+  variants:
+    - suffix: default
+      params: ''
+  cmdline:
+    rootflags: 'subvol=@'
+    rootfstype: 'btrfs'
+    rw: true
+    quiet: true
+    # kernel lockdown, IOMMU isolation, CPU side-channel mitigations, memory zeroing
+    hardening:
+      lockdown: 'integrity'
+      iommu: 'force'
+      intel_iommu: 'on'
+      amd_iommu: 'force_isolation'
+      pti: 'on'
+      spectre_v2: 'on'
+      spec_store_bypass_disable: 'on'
+      l1tf: 'full,force'
+      mds: 'full,nosmt'
+      srbds: 'on'
+      tsx_async_abort: 'full,nosmt'
+      init_on_alloc: 1
+      init_on_free: 1
+  loader:
+    timeout: 10
+    console_mode: max
+    editor: false
+  # the installer creates its own keys and enrolls them while the firmware is in setup mode
+  secure_boot:
+    enroll_keys: true
+    include_microsoft_keys: true
+  hooks:
+    - systemd
+    - autodetect
+    - microcode
+    - modconf
+    - kms
+    - keyboard
+    - sd-vconsole
+    - block
+    - sd-encrypt
+    - filesystems
+    - fsck
+  selected_kernels: []
+  enable_snapshot_boot: false
+
+packages:
+  base:
+    - base
+    - mkinitcpio
+    - sudo
+    - efibootmgr
+    - linux-hardened
+    - linux-firmware
+    - intel-ucode
+    - amd-ucode
+    - btrfs-progs
+    - cryptsetup
+    - sbctl
+    - efitools
+    - sbsigntools
+    - systemd-ukify
+    - networkmanager
+    - openssh
+    - nano
+    - firefox
+  desktops:
+    # Plasma itself, not the plasma group: the group's Bigscreen (TV) session would be
+    # the one SDDM preselects
+    kde:
+      - plasma-desktop
+      - plasma-nm
+      - plasma-pa
+      - kscreen
+      - konsole
+      - dolphin
+    gnome: []
+    hyprland: []
+  display_manager:
+    - sddm
+  selected_desktops:
+    - kde
+  cataloged: []
+
+gpu:
+  # nvidia, amd, intel, none; none for a virtual machine
+  vendor: none
+  driver: ''
+  drivers:
+    amd:
+      - mesa
+      - vulkan-radeon
+    intel:
+      - mesa
+      - vulkan-intel
+    nouveau:
+      - mesa
+      - xf86-video-nouveau
+    nvidia_dkms:
+      - nvidia-dkms
+      - nvidia-utils
+    nvidia_open:
+      - nvidia-open-dkms
+      - nvidia-utils
+
+snapper:
+  enabled: false
+  allow_groups: []
+  root:
+    subvolume: /
+    snapshots_subvolume: '@snapshots'
+    snapshots_path: /.snapshots
+    number_limit: 0
+    number_limit_important: 0
+    timeline: false
+    cleanup: false
+    retention:
+      hourly: 0
+      daily: 0
+      weekly: 0
+      monthly: 0
+      yearly: 0
+  home:
+    subvolume: /home
+    snapshots_subvolume: '@home-snapshots'
+    snapshots_path: /home/.snapshots
+    number_limit: 0
+    number_limit_important: 0
+    timeline: false
+    cleanup: false
+    retention:
+      hourly: 0
+      daily: 0
+      weekly: 0
+      monthly: 0
+      yearly: 0
+  snap_pac: false
+  bootable_snapshot_count: 0
+
+# everything incoming is dropped, except SSH, which is open to debug the demo machine
+firewall:
+  enabled: true
+  default_incoming: deny
+  default_outgoing: allow
+  logging: true
+  block_icmp: true
+  ssh:
+    enabled: true
+    port: 22
+    allowed_from: ''
+  allow_rules: []
+
+docker:
+  enabled: false
+  storage_driver: overlay2
+  data_root: /var/lib/docker
+  access_group: docker_access
+
+notifications:
+  enabled: false
+
+sync:
+  backup_partition: ''
+  backup_categories: []
+  backup_items: []
+
+migration:
+  enabled: false
+  preserve_home: true
+  preserve_secure_boot_keys: true
+  additional_paths: []
+
+# the USB boot drive: off here, the TUI offers it (see docs/usb-boot.md)
+usb_boot:
+  enabled: false
+  device: ''
+  recovery_system: true
+  iso_path: ''
+
+# empty: the TUI asks for both passwords (or `make encrypt-secrets` stores them here)
+secrets:
+  luks_password_encrypted: ''
+  user_password_encrypted: ''
